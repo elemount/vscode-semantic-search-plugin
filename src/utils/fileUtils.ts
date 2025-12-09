@@ -153,3 +153,27 @@ export function getStoragePath(context: vscode.ExtensionContext): string {
     const storagePath = context.globalStorageUri.fsPath;
     return storagePath;
 }
+
+/**
+ * Get indexing configuration from VS Code settings
+ */
+export function getIndexingConfigFromSettings(): IndexingConfig {
+    const config = vscode.workspace.getConfiguration('semanticSearch');
+    
+    // Get user-configured exclude patterns and merge with defaults
+    const userExcludePatterns = config.get<string[]>('excludePatterns', []);
+    const excludePatterns = [...DEFAULT_INDEXING_CONFIG.excludePatterns, ...userExcludePatterns];
+    
+    // Get user-configured include patterns and merge with defaults
+    const userIncludePatterns = config.get<string[]>('includePatterns', []);
+    const includePatterns = userIncludePatterns.length > 0 
+        ? userIncludePatterns 
+        : DEFAULT_INDEXING_CONFIG.includePatterns;
+    
+    return {
+        chunkSize: config.get<number>('chunkSize', DEFAULT_INDEXING_CONFIG.chunkSize),
+        chunkOverlap: config.get<number>('chunkOverlap', DEFAULT_INDEXING_CONFIG.chunkOverlap),
+        excludePatterns,
+        includePatterns,
+    };
+}

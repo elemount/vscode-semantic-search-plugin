@@ -4,6 +4,7 @@
 
 import * as vscode from 'vscode';
 import { SearchService } from '../services/searchService';
+import { SearchResultsPanel } from '../views/searchResultsPanel';
 import { normalizePath } from '../utils/fileUtils';
 
 export function registerSearchCommand(
@@ -46,6 +47,9 @@ export function registerSearchCommand(
             }
         }
 
+        // Get max results from settings
+        const maxResults = vscode.workspace.getConfiguration('semanticSearch').get<number>('maxResults', 10);
+
         // Perform search with progress
         await vscode.window.withProgress(
             {
@@ -56,8 +60,8 @@ export function registerSearchCommand(
             async () => {
                 try {
                     const results = workspacePath
-                        ? await searchService.searchInWorkspace(query, workspacePath, 20)
-                        : await searchService.search(query, 20);
+                        ? await searchService.searchInWorkspace(query, workspacePath, maxResults)
+                        : await searchService.search(query, maxResults);
 
                     if (results.length === 0) {
                         vscode.window.showInformationMessage('No results found.');
@@ -97,6 +101,87 @@ export function registerSearchCommand(
                         editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
                         editor.selection = new vscode.Selection(startLine, 0, startLine, 0);
                     }
+                } catch (error) {
+                    vscode.window.showErrorMessage(
+                        `Search failed: ${error instanceof Error ? error.message : String(error)}`
+                    );
+                }
+            }
+        );
+    });
+}
+
+/**
+ * Search with rich webview panel results
+ */
+export function registerSearchWithPanelCommand(
+    context: vscode.ExtensionContext,
+    searchService: SearchService
+): vscode.Disposable {
+    return vscode.commands.registerCommand('semantic-search.searchWithPanel', async () => {
+        // Get query from user
+        const query = await vscode.window.showInputBox({
+            prompt: 'Enter your search query',
+            placeHolder: 'e.g., function that handles user authentication',
+        });
+
+        if (!query) {
+            return;
+        }
+
+        // Get workspace path if available
+        let workspacePath: string | undefined;
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length === 1) {
+            workspacePath = normalizePath(workspaceFolders[0].uri.fsPath);
+        } else if (workspaceFolders && workspaceFolders.length > 1) {
+            const selected = await vscode.window.showQuickPick(
+                [
+                    { label: 'All workspaces', path: undefined },
+                    ...workspaceFolders.map((f) => ({
+                        label: f.name,
+                        description: f.uri.fsPath,
+                        path: normalizePath(f.uri.fsPath),
+                    })),
+                ],
+                {
+                    placeHolder: 'Select workspace to search in',
+                }
+            );
+
+            if (selected && 'path' in selected) {
+                workspacePath = selected.path;
+            }
+        }
+
+        // Get max results from settings
+        const maxResults = vscode.workspace.getConfiguration('semanticSearch').get<number>('maxResults', 10);
+
+        // Perform search with progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: 'Searching...',
+                cancellable: false,
+            },
+            async () => {
+                try {
+                    const results = workspacePath
+                        ? await searchService.searchInWorkspace(query, workspacePath, maxResults)
+                        : await searchService.search(query, maxResults);
+
+                    if (results.length === 0) {
+                        vscode.window.showInformationMessage('No results found.');
+                        return;
+                    }
+
+                    // Show results in webview panel
+                    SearchResultsPanel.createOrShow(
+                        context.extensionUri,
+                        results,
+                        query,
+                        workspacePath
+                    );
                 } catch (error) {
                     vscode.window.showErrorMessage(
                         `Search failed: ${error instanceof Error ? error.message : String(error)}`

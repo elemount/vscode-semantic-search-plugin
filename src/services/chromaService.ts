@@ -3,9 +3,11 @@
  * Uses chromadb npm package for Node.js embedded vector database
  */
 
+import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { DocumentChunk, SearchResult } from '../models/types';
+import { ChromaProcessManager, ChromaServerStatus } from './chromaProcessManager';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ChromaClient = any;
@@ -21,9 +23,65 @@ export class ChromaService {
     private storagePath: string;
     private collectionName: string = 'semantic_search_index';
     private initialized: boolean = false;
+    private processManager: ChromaProcessManager | null = null;
+    private context: vscode.ExtensionContext | null = null;
+    private useServerMode: boolean = false;
 
-    constructor(storagePath: string) {
+    constructor(storagePath: string, context?: vscode.ExtensionContext) {
         this.storagePath = storagePath;
+        if (context) {
+            this.context = context;
+            this.processManager = new ChromaProcessManager(context);
+            this.useServerMode = this.shouldUseServerMode();
+        }
+    }
+
+    /**
+     * Check if we should use server mode (bundled Chroma executable exists)
+     */
+    private shouldUseServerMode(): boolean {
+        if (!this.context) {
+            return false;
+        }
+
+        const platform = process.platform;
+        const arch = process.arch;
+        const ext = platform === 'win32' ? '.exe' : '';
+
+        let platformDir: string;
+        if (platform === 'win32') {
+            platformDir = 'win32-x64';
+        } else if (platform === 'darwin') {
+            platformDir = arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64';
+        } else {
+            platformDir = 'linux-x64';
+        }
+
+        const execPath = path.join(
+            this.context.extensionPath,
+            'bin',
+            platformDir,
+            `chroma${ext}`
+        );
+
+        return fs.existsSync(execPath);
+    }
+
+    /**
+     * Get server status
+     */
+    getServerStatus(): ChromaServerStatus {
+        return this.processManager?.getStatus() ?? 'stopped';
+    }
+
+    /**
+     * Subscribe to server status changes
+     */
+    onServerStatusChange(listener: (status: ChromaServerStatus) => void): vscode.Disposable {
+        if (this.processManager) {
+            return this.processManager.onStatusChange(listener);
+        }
+        return { dispose: () => {} };
     }
 
     /**
@@ -43,10 +101,24 @@ export class ChromaService {
         // Import chromadb
         const { ChromaClient } = require('chromadb');
         const { DefaultEmbeddingFunction } = require('chromadb-default-embed');
-        
-        // Create client - ChromaDB will use an in-memory client by default
-        // For persistence, we'll store data manually or use the server mode later
-        this.client = new ChromaClient();
+
+        // Check if we should use server mode
+        if (this.useServerMode && this.processManager) {
+            // Start the Chroma server process
+            console.log('Starting Chroma server in server mode...');
+            await this.processManager.start();
+
+            // Connect client to the server
+            this.client = new ChromaClient({
+                path: this.processManager.getServerUrl()
+            });
+            console.log(`Connected to Chroma server at ${this.processManager.getServerUrl()}`);
+        } else {
+            // Create client - ChromaDB will use an in-memory client by default
+            // For persistence, we'll store data manually or use the server mode later
+            console.log('Starting Chroma in in-memory mode (server binaries not found)...');
+            this.client = new ChromaClient();
+        }
         
         // Use the default embedding function (all-MiniLM-L6-v2)
         this.embeddingFunction = new DefaultEmbeddingFunction();
@@ -334,5 +406,18 @@ export class ChromaService {
         });
 
         return results.ids ?? [];
+    }
+
+    /**
+     * Dispose resources and stop the Chroma server
+     */
+    async dispose(): Promise<void> {
+        if (this.processManager) {
+            await this.processManager.stop();
+            this.processManager.dispose();
+        }
+        this.initialized = false;
+        this.client = null;
+        this.collection = null;
     }
 }
