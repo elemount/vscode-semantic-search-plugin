@@ -144,19 +144,20 @@
     "test": "vscode-test"
   },
   "dependencies": {
-    "chromadb": "^1.9.2",
+    "@duckdb/node-api": "^1.4.2-r.1",
+    "@duckdb/node-bindings": "^1.4.2-r.1",
+    "chromadb": "^1.10.5",
     "chromadb-default-embed": "^2.13.2",
-    "duckdb": "^1.1.3",
     "minimatch": "^10.0.1"
   },
   "devDependencies": {
-    "@types/vscode": "^1.106.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
-    "typescript-eslint": "^8.48.1",
+    "@types/vscode": "^1.106.1",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.39.1",
     "typescript": "^5.9.3",
-    "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2"
+    "typescript-eslint": "^8.48.1"
   }
 }
