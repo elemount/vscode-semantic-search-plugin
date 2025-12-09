@@ -9,13 +9,129 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "semantic-search.helloWorld",
-        "title": "Hello World"
+        "command": "semantic-search.buildIndex",
+        "title": "Build Index",
+        "category": "Semantic Search",
+        "icon": "$(database)"
+      },
+      {
+        "command": "semantic-search.indexFiles",
+        "title": "Index Files/Folders",
+        "category": "Semantic Search",
+        "icon": "$(file-add)"
+      },
+      {
+        "command": "semantic-search.search",
+        "title": "Search",
+        "category": "Semantic Search",
+        "icon": "$(search)"
+      },
+      {
+        "command": "semantic-search.quickSearch",
+        "title": "Quick Search (Open Top Result)",
+        "category": "Semantic Search",
+        "icon": "$(search-fuzzy)"
+      },
+      {
+        "command": "semantic-search.deleteIndex",
+        "title": "Delete Index",
+        "category": "Semantic Search",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "semantic-search.deleteFileIndex",
+        "title": "Delete File Index",
+        "category": "Semantic Search",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "semantic-search.refreshIndex",
+        "title": "Refresh Index View",
+        "category": "Semantic Search",
+        "icon": "$(refresh)"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "semanticSearchIndex",
+          "name": "Semantic Search Index",
+          "icon": "$(search)",
+          "contextualTitle": "Semantic Search Index"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "semantic-search.buildIndex",
+          "when": "view == semanticSearchIndex",
+          "group": "navigation@1"
+        },
+        {
+          "command": "semantic-search.refreshIndex",
+          "when": "view == semanticSearchIndex",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "semantic-search.deleteFileIndex",
+          "when": "view == semanticSearchIndex && viewItem == indexedFile",
+          "group": "inline"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "semantic-search.indexFiles",
+          "when": "explorerResourceIsFolder || resourceExtname",
+          "group": "semanticSearch@1"
+        },
+        {
+          "command": "semantic-search.deleteFileIndex",
+          "when": "resourceExtname",
+          "group": "semanticSearch@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "semantic-search.deleteFileIndex",
+          "when": "false"
+        }
+      ]
+    },
+    "languageModelTools": [
+      {
+        "name": "semantic-search_semanticSearch",
+        "displayName": "Semantic Search",
+        "description": "Search for relevant code snippets using semantic similarity. Use this to find code related to a concept or description.",
+        "modelDescription": "Search for relevant code snippets in the workspace using semantic similarity. Returns file paths, line numbers, and code content. Use this when the user asks about code functionality, wants to find implementations, or needs to locate specific features in the codebase.",
+        "icon": "$(search)",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "The search query describing what code or functionality to find"
+            },
+            "maxResults": {
+              "type": "number",
+              "description": "Maximum number of results to return (default: 10)",
+              "default": 10
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
       }
     ]
   },
@@ -26,6 +142,12 @@
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test"
+  },
+  "dependencies": {
+    "chromadb": "^1.9.2",
+    "chromadb-default-embed": "^2.13.2",
+    "duckdb": "^1.1.3",
+    "minimatch": "^10.0.1"
   },
   "devDependencies": {
     "@types/vscode": "^1.106.1",

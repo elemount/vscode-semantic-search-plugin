@@ -1,53 +1,119 @@
-# semantic-search README
+# Semantic Search
 
-This is the README for your extension "semantic-search". After writing up a brief description, we recommend including the following sections.
+A VSCode extension that provides semantic search capabilities for your codebase. Uses ChromaDB for vector storage and integrates with GitHub Copilot through the Language Model Tool API.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+### Build Index
+Index your workspace files with embedding vectors for fast semantic search.
 
-For example if there is an image subfolder under your extension project workspace:
+- **Build Index Command**: Index all files in your workspace folder
+- **Index Files/Folders**: Selectively index specific files or folders from the context menu
+- **Automatic Deduplication**: Uses MD5 hashing to skip unchanged files during re-indexing
 
-\!\[feature X\]\(images/feature-x.png\)
+### Search
+Search your codebase using natural language queries.
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+- **Semantic Search**: Find relevant code snippets based on meaning, not just keywords
+- **Quick Search**: Instantly open the top search result
+- **GitHub Copilot Integration**: Use semantic search directly from Copilot chat with the `@semantic-search` tool
+
+### Index Management
+- **Index Sidebar**: View all indexed files in the Explorer view
+- **Stale Detection**: Identifies files that have changed since last indexing
+- **Delete Index**: Remove index for specific files or entire workspaces
 
 ## Requirements
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+This extension requires the following npm packages (installed automatically):
 
-## Extension Settings
+- `chromadb` - Vector database for embeddings
+- `chromadb-default-embed` - Default embedding model
+- `duckdb` - SQL database for metadata storage
+- `minimatch` - File pattern matching
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+## Usage
 
-For example:
+### Building the Index
 
-This extension contributes the following settings:
+1. Open a workspace folder in VSCode
+2. Run the command **"Semantic Search: Build Index"** from the command palette (Ctrl+Shift+P)
+3. Wait for indexing to complete (progress shown in notification)
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+### Searching
+
+1. Run the command **"Semantic Search: Search"** from the command palette
+2. Enter your natural language query (e.g., "function that handles user authentication")
+3. Select a result to open the file at the relevant location
+
+### Using with GitHub Copilot
+
+In Copilot Chat, you can reference the semantic search tool:
+
+```
+@semantic-search find the error handling code
+```
+
+The tool will search your indexed codebase and return relevant snippets.
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `Semantic Search: Build Index` | Index all files in the workspace |
+| `Semantic Search: Index Files/Folders` | Index selected files or folders |
+| `Semantic Search: Search` | Open semantic search dialog |
+| `Semantic Search: Quick Search` | Search and open top result |
+| `Semantic Search: Delete Index` | Delete workspace or file index |
+| `Semantic Search: Refresh Index View` | Refresh the index sidebar |
+
+## File Types Indexed
+
+By default, the extension indexes common code file types:
+
+- TypeScript (`.ts`, `.tsx`)
+- JavaScript (`.js`, `.jsx`)
+- Python (`.py`)
+- Java (`.java`)
+- C# (`.cs`)
+- Go (`.go`)
+- Rust (`.rs`)
+- C/C++ (`.c`, `.cpp`, `.h`, `.hpp`)
+- Markdown (`.md`)
+- JSON, YAML, XML, HTML, CSS
+
+## Excluded Directories
+
+The following directories are excluded by default:
+
+- `node_modules`
+- `.git`
+- `dist`, `out`, `bin`, `obj`
+- `.vscode`
+
+## Data Storage
+
+All index data is stored in the VSCode global storage directory:
+
+- **ChromaDB**: Vector embeddings for semantic search
+- **DuckDB**: File metadata (paths, hashes, timestamps)
 
 ## Known Issues
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+- First indexing may take a while for large workspaces
+- ChromaDB requires native module compilation
 
 ## Release Notes
 
-Users appreciate release notes as you update your extension.
+### 0.0.1
 
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
+Initial release with:
+- Build Index command
+- Semantic Search command
+- Index Sidebar view
+- GitHub Copilot Language Model Tool integration
+- DuckDB metadata storage
+- ChromaDB vector storage
 
 ## Following extension guidelines
 

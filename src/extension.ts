@@ -1,26 +1,103 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
+/**
+ * VSCode Semantic Search Extension
+ * 
+ * Provides semantic search capabilities for code using ChromaDB and DuckDB.
+ * Integrates with GitHub Copilot through the Language Model Tool API.
+ */
+
 import * as vscode from 'vscode';
+import { ChromaService } from './services/chromaService';
+import { DuckDBService } from './services/duckdbService';
+import { IndexingService } from './services/indexingService';
+import { SearchService } from './services/searchService';
+import { registerBuildIndexCommand, registerIndexFilesCommand } from './commands/buildIndex';
+import { registerSearchCommand, registerQuickSearchCommand } from './commands/search';
+import { registerDeleteIndexCommand, registerDeleteFileIndexCommand } from './commands/deleteIndex';
+import { registerIndexSidebarView } from './views/indexSidebar';
+import { registerSemanticSearchTool } from './tools/semanticSearchTool';
+import { getStoragePath } from './utils/fileUtils';
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
-export function activate(context: vscode.ExtensionContext) {
+// Global service instances
+let chromaService: ChromaService;
+let duckdbService: DuckDBService;
+let indexingService: IndexingService;
+let searchService: SearchService;
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "semantic-search" is now active!');
+/**
+ * Activate the extension
+ */
+export async function activate(context: vscode.ExtensionContext) {
+    console.log('Semantic Search extension is activating...');
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('semantic-search.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from Semantic Search!');
-	});
+    try {
+        // Get storage path for databases
+        const storagePath = getStoragePath(context);
+        console.log(`Storage path: ${storagePath}`);
 
-	context.subscriptions.push(disposable);
+        // Initialize services
+        chromaService = new ChromaService(storagePath);
+        duckdbService = new DuckDBService(storagePath);
+
+        // Initialize databases
+        await Promise.all([
+            chromaService.initialize(),
+            duckdbService.initialize(),
+        ]);
+
+        console.log('Services initialized successfully');
+
+        // Create indexing and search services
+        indexingService = new IndexingService(chromaService, duckdbService);
+        searchService = new SearchService(chromaService);
+
+        // Register commands
+        context.subscriptions.push(
+            registerBuildIndexCommand(context, indexingService),
+            registerIndexFilesCommand(context, indexingService),
+            registerSearchCommand(context, searchService),
+            registerQuickSearchCommand(context, searchService),
+            registerDeleteIndexCommand(context, indexingService),
+            registerDeleteFileIndexCommand(context, indexingService)
+        );
+
+        // Register sidebar view
+        const treeView = registerIndexSidebarView(context, indexingService);
+        context.subscriptions.push(treeView);
+
+        // Register Language Model Tool for Copilot integration
+        registerSemanticSearchTool(context, searchService);
+
+        // Show activation message
+        vscode.window.showInformationMessage('Semantic Search is ready!');
+
+        console.log('Semantic Search extension activated successfully');
+    } catch (error) {
+        console.error('Failed to activate Semantic Search extension:', error);
+        vscode.window.showErrorMessage(
+            `Failed to activate Semantic Search: ${error instanceof Error ? error.message : String(error)}`
+        );
+    }
 }
 
-// This method is called when your extension is deactivated
-export function deactivate() {}
+/**
+ * Deactivate the extension
+ */
+export async function deactivate() {
+    console.log('Deactivating Semantic Search extension...');
+
+    try {
+        // Dispose services
+        if (indexingService) {
+            indexingService.dispose();
+        }
+
+        // Close database connections
+        if (duckdbService) {
+            await duckdbService.close();
+        }
+
+        console.log('Semantic Search extension deactivated');
+    } catch (error) {
+        console.error('Error during deactivation:', error);
+    }
+}
