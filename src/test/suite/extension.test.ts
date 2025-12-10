@@ -29,6 +29,7 @@ suite('Extension Test Suite', () => {
 		const expectedCommands = [
 			'semantic-search.buildIndex',
 			'semantic-search.indexFiles',
+			'semantic-search.addWorkspaceToIndex',
 			'semantic-search.search',
 			'semantic-search.searchWithPanel',
 			'semantic-search.quickSearch',

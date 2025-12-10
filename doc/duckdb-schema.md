@@ -46,10 +46,10 @@ Top-level workspace tracking. Each VS Code workspace folder gets an entry.
 ### `folders_v1`
 | Column | Type | Constraints | Default | Description |
 |--------|------|-------------|---------|-------------|
-| `folder_id` | VARCHAR | PRIMARY KEY | | UUID (MD5 hash of workspace + folder path) |
+| `folder_id` | VARCHAR | PRIMARY KEY | | UUID (MD5 hash of folder absolute path) |
 | `workspace_id` | VARCHAR | NOT NULL | | Reference to workspaces table |
 | `parent_folder_id` | VARCHAR | | | Reference to parent folder (nullable, if it is the root folder of the workspace) |
-| `folder_path` | VARCHAR | NOT NULL | | Full relative folder path, e.g., 'src/components' |
+| `folder_path` | VARCHAR | NOT NULL | | Absolute folder path, e.g., 'C:/project/src/components' |
 | `folder_name` | VARCHAR | | | Just the folder name, e.g., 'components' |
 | `created_at` | BIGINT | NOT NULL | | Unix timestamp when folder was first indexed |
 
@@ -64,21 +64,19 @@ File metadata with derived folder structure for tree view.
 
 | Column | Type | Constraints | Default | Description |
 |--------|------|-------------|---------|-------------|
-| `file_id` | VARCHAR | PRIMARY KEY | | UUID (MD5 hash of workspace + file path) |
+| `file_id` | VARCHAR | PRIMARY KEY | | UUID (MD5 hash of file absolute path) |
 | `workspace_id` | VARCHAR | | | Reference to workspaces table |
 | `folder_id` | VARCHAR | | | Reference to folders table |
-| `file_path` | VARCHAR | NOT NULL | | Full relative path, e.g., 'src/components/Button.tsx' |
+| `file_path` | VARCHAR | NOT NULL | | Absolute file path, e.g., 'C:/project/src/components/Button.tsx' |
 | `file_name` | VARCHAR | | | Just the filename, e.g., 'Button.tsx' |
-| `absolute_path` | VARCHAR | NOT NULL | | Absolute file path |
 | `file_size` | BIGINT | | | File size in bytes |
 | `last_indexed_at` | BIGINT | NOT NULL | | Unix timestamp of last indexing |
 | `md5_hash` | VARCHAR | NOT NULL | | MD5 hash of file content for change detection |
 
 **Indexes:**
-- `idx_workspace_path` - Index on `workspace_path`
 - `idx_file_workspace_id` - Index on `workspace_id`
 - `idx_file_folder_id` - Index on `folder_id`
-- `idx_file_unique_path` - UNIQUE index on `(workspace_id, file_path)`
+- `idx_file_unique_path` - UNIQUE index on `file_path`
 
 ### `file_chunks_small_v1`
 
@@ -88,9 +86,9 @@ Vector embeddings and content for code segments.
 |--------|------|-------------|---------|-------------|
 | `chunk_id` | VARCHAR | PRIMARY KEY | | UUID (derived from file_id + line range(line:pos-line:pos)) |
 | `file_id` | VARCHAR | NOT NULL | | Reference to indexed_files table |
-| `file_path` | VARCHAR | NOT NULL | | File path (denormalized for query efficiency) |
+| `file_path` | VARCHAR | NOT NULL | | Absolute file path (denormalized for query efficiency) |
 | `workspace_id` | VARCHAR | NOT NULL | | Reference to workspaces table |
-| `workspace_path` | VARCHAR | NOT NULL | | Workspace path (denormalized) |
+| `workspace_path` | VARCHAR | NOT NULL | | Absolute workspace path (denormalized) |
 | `content` | TEXT | NOT NULL | | The actual code content |
 | `line_start` | INTEGER | NOT NULL | | Starting line number (1-indexed) |
 | `line_pos_start` | INTEGER | NOT NULL | | Starting line position (1-indexed) |

@@ -322,8 +322,12 @@ export class VectorDbService {
 
         const fileName = file.fileName || this.extractFileName(file.filePath);
         const workspaceId = file.workspaceId || await this.getOrCreateWorkspaceId(file.workspacePath || '');
-        const folderId = file.folderId || await this.getOrCreateFolderId(workspaceId, file.filePath);
         
+        // file.filePath is now absolute path
+        const absolutePath = file.filePath;
+        const folderId = file.folderId || await this.getOrCreateFolderId(workspaceId, absolutePath);
+        
+        // Note: absolute_path column is kept for backward compatibility but both store the same value now
         const sql = `
             INSERT INTO indexed_files_v1 (file_id, workspace_id, folder_id, file_path, file_name, 
                                           absolute_path, file_size, last_indexed_at, md5_hash)
@@ -342,9 +346,9 @@ export class VectorDbService {
         stmt.bindValue(1, file.fileId);
         stmt.bindValue(2, workspaceId);
         stmt.bindValue(3, folderId);
-        stmt.bindValue(4, file.filePath);
+        stmt.bindValue(4, absolutePath); // Store absolute path in file_path
         stmt.bindValue(5, fileName);
-        stmt.bindValue(6, file.absolutePath);
+        stmt.bindValue(6, absolutePath); // Also store in absolute_path for backward compat
         stmt.bindValue(7, file.fileSize || null);
         stmt.bindValue(8, file.lastIndexedAt);
         stmt.bindValue(9, file.md5Hash);
@@ -413,16 +417,79 @@ export class VectorDbService {
     }
 
     /**
-     * Get or create folder ID from workspace ID and file path
+     * Get or create folder ID from workspace ID and absolute file path
      * Creates all parent folders as needed
+     * @param workspaceId The workspace ID
+     * @param absoluteFilePath The absolute file path (e.g., 'C:/project/src/utils/file.ts')
+     * @returns The folder ID for the file's containing folder, or empty string if file is in workspace root
      */
-    private async getOrCreateFolderId(workspaceId: string, filePath: string): Promise<string> {
-        const folderPath = this.extractFolderPath(filePath);
+    private async getOrCreateFolderId(workspaceId: string, absoluteFilePath: string): Promise<string> {
+        // Get workspace path
+        const workspace = await this.getWorkspaceById(workspaceId);
+        if (!workspace) {
+            return '';
+        }
+        
+        // Extract folder path from file path (e.g., 'C:/project/src/utils/file.ts' -> 'C:/project/src/utils')
+        const folderPath = this.extractFolderPath(absoluteFilePath);
         if (!folderPath) {
             return '';
         }
 
-        const folderId = this.generateFolderId(workspaceId, folderPath);
+        // Normalize paths for comparison
+        const normalizedWorkspace = workspace.workspacePath.replace(/\\/g, '/').toLowerCase();
+        const normalizedFolder = folderPath.replace(/\\/g, '/').toLowerCase();
+        
+        // Check if folder is the workspace root
+        if (normalizedFolder === normalizedWorkspace || normalizedFolder + '/' === normalizedWorkspace) {
+            return '';
+        }
+
+        // Create this folder (and all parents) using helper
+        return this.ensureFolderExists(workspaceId, folderPath, workspace.workspacePath);
+    }
+
+    /**
+     * Get workspace by ID
+     */
+    private async getWorkspaceById(workspaceId: string): Promise<Workspace | null> {
+        try {
+            const sql = `SELECT * FROM workspaces_v1 WHERE workspace_id = $1`;
+            const rows = await this.querySQL<{
+                workspace_id: string;
+                workspace_path: string;
+                workspace_name: string;
+                status: string;
+                created_at: number;
+            }>(sql, workspaceId);
+
+            if (rows.length === 0) {
+                return null;
+            }
+
+            const row = rows[0];
+            return {
+                workspaceId: row.workspace_id,
+                workspacePath: row.workspace_path,
+                workspaceName: row.workspace_name,
+                status: row.status as 'active' | 'indexing' | 'error',
+                createdAt: row.created_at,
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Ensure a folder exists in the database, creating it and all parent folders if needed
+     * @param workspaceId The workspace ID
+     * @param absoluteFolderPath The absolute folder path (e.g., 'C:/project/src/utils')
+     * @param workspacePath The workspace root path (e.g., 'C:/project')
+     * @returns The folder ID
+     */
+    private async ensureFolderExists(workspaceId: string, absoluteFolderPath: string, workspacePath: string): Promise<string> {
+        // Generate folder ID based on absolute path
+        const folderId = this.generateFolderId(workspaceId, absoluteFolderPath);
         
         // Check if folder already exists
         const existingResult = await this.connection.run(`
@@ -434,19 +501,30 @@ export class VectorDbService {
             return folderId;
         }
 
-        // Create parent folders recursively
-        const parentFolderPath = this.extractFolderPath(folderPath);
+        // Normalize paths for comparison
+        const normalizedWorkspace = workspacePath.replace(/\\/g, '/').toLowerCase();
+        const normalizedFolderPath = absoluteFolderPath.replace(/\\/g, '/');
+        const normalizedFolderPathLower = normalizedFolderPath.toLowerCase();
+        
+        // Create parent folder first if needed
+        const parentFolderPath = this.extractFolderPath(absoluteFolderPath);
         let parentFolderId: string | null = null;
+        
         if (parentFolderPath) {
-            parentFolderId = await this.getOrCreateFolderId(workspaceId, folderPath);
+            const normalizedParent = parentFolderPath.replace(/\\/g, '/').toLowerCase();
+            // Only create parent if it's still within workspace (not workspace root itself)
+            if (normalizedParent !== normalizedWorkspace && 
+                normalizedParent.startsWith(normalizedWorkspace)) {
+                parentFolderId = await this.ensureFolderExists(workspaceId, parentFolderPath, workspacePath);
+            }
         }
 
-        // Create the folder
-        const folderName = this.extractFolderName(folderPath);
+        // Create this folder
+        const folderName = this.extractFolderName(absoluteFolderPath);
         await this.connection.run(`
             INSERT INTO folders_v1 (folder_id, workspace_id, parent_folder_id, folder_path, folder_name, created_at)
             VALUES ('${folderId}', '${workspaceId}', ${parentFolderId ? `'${parentFolderId}'` : 'NULL'}, 
-                    '${folderPath.replace(/'/g, "''")}', '${folderName.replace(/'/g, "''")}', ${Date.now()})
+                    '${normalizedFolderPath.replace(/'/g, "''")}', '${folderName.replace(/'/g, "''")}', ${Date.now()})
             ON CONFLICT (folder_id) DO NOTHING
         `);
 
@@ -458,7 +536,8 @@ export class VectorDbService {
      */
     async getIndexedFile(fileId: string): Promise<IndexedFile | null> {
         const sql = `
-            SELECT f.*, w.workspace_path 
+            SELECT f.file_id, f.workspace_id, f.folder_id, f.file_path, f.file_name,
+                   f.file_size, f.last_indexed_at, f.md5_hash, w.workspace_path 
             FROM indexed_files_v1 f
             LEFT JOIN workspaces_v1 w ON f.workspace_id = w.workspace_id
             WHERE f.file_id = $1
@@ -469,7 +548,6 @@ export class VectorDbService {
             folder_id: string;
             file_path: string;
             file_name: string;
-            absolute_path: string;
             file_size: number | null;
             last_indexed_at: number;
             md5_hash: string;
@@ -488,7 +566,8 @@ export class VectorDbService {
      */
     async getIndexedFileByPath(filePath: string): Promise<IndexedFile | null> {
         const sql = `
-            SELECT f.*, w.workspace_path 
+            SELECT f.file_id, f.workspace_id, f.folder_id, f.file_path, f.file_name,
+                   f.file_size, f.last_indexed_at, f.md5_hash, w.workspace_path 
             FROM indexed_files_v1 f
             LEFT JOIN workspaces_v1 w ON f.workspace_id = w.workspace_id
             WHERE f.file_path = $1
@@ -499,7 +578,6 @@ export class VectorDbService {
             folder_id: string;
             file_path: string;
             file_name: string;
-            absolute_path: string;
             file_size: number | null;
             last_indexed_at: number;
             md5_hash: string;
@@ -522,7 +600,6 @@ export class VectorDbService {
         folder_id: string;
         file_path: string;
         file_name: string;
-        absolute_path: string;
         file_size: number | null;
         last_indexed_at: number;
         md5_hash: string;
@@ -532,9 +609,8 @@ export class VectorDbService {
             fileId: row.file_id,
             workspaceId: row.workspace_id || '',
             folderId: row.folder_id || '',
-            filePath: row.file_path,
+            filePath: row.file_path, // Now absolute path
             fileName: row.file_name || this.extractFileName(row.file_path),
-            absolutePath: row.absolute_path,
             fileSize: row.file_size || undefined,
             lastIndexedAt: row.last_indexed_at,
             md5Hash: row.md5_hash,
@@ -547,7 +623,8 @@ export class VectorDbService {
      */
     async getIndexedFilesForWorkspace(workspacePath: string): Promise<IndexedFile[]> {
         const sql = `
-            SELECT f.*, w.workspace_path 
+            SELECT f.file_id, f.workspace_id, f.folder_id, f.file_path, f.file_name,
+                   f.file_size, f.last_indexed_at, f.md5_hash, w.workspace_path 
             FROM indexed_files_v1 f
             INNER JOIN workspaces_v1 w ON f.workspace_id = w.workspace_id
             WHERE w.workspace_path = $1
@@ -558,7 +635,6 @@ export class VectorDbService {
             folder_id: string;
             file_path: string;
             file_name: string;
-            absolute_path: string;
             file_size: number | null;
             last_indexed_at: number;
             md5_hash: string;
@@ -573,7 +649,8 @@ export class VectorDbService {
      */
     async getAllIndexedFiles(): Promise<IndexedFile[]> {
         const sql = `
-            SELECT f.*, w.workspace_path 
+            SELECT f.file_id, f.workspace_id, f.folder_id, f.file_path, f.file_name,
+                   f.file_size, f.last_indexed_at, f.md5_hash, w.workspace_path 
             FROM indexed_files_v1 f
             LEFT JOIN workspaces_v1 w ON f.workspace_id = w.workspace_id
         `;
@@ -583,7 +660,6 @@ export class VectorDbService {
             folder_id: string;
             file_path: string;
             file_name: string;
-            absolute_path: string;
             file_size: number | null;
             last_indexed_at: number;
             md5_hash: string;
@@ -788,6 +864,76 @@ export class VectorDbService {
      */
     async getFilesInFolder(workspacePath: string, folderId: string): Promise<IndexedFile[]> {
         const sql = `
+            SELECT f.file_id, f.workspace_id, f.folder_id, f.file_path, f.file_name,
+                   f.file_size, f.last_indexed_at, f.md5_hash, w.workspace_path 
+            FROM indexed_files_v1 f
+            INNER JOIN workspaces_v1 w ON f.workspace_id = w.workspace_id
+            WHERE f.folder_id = $1
+            ORDER BY f.file_name
+        `;
+        
+        const rows = await this.querySQL<{
+            file_id: string;
+            workspace_id: string;
+            folder_id: string;
+            file_path: string;
+            file_name: string;
+            file_size: number | null;
+            last_indexed_at: number;
+            md5_hash: string;
+            workspace_path: string;
+        }>(sql, folderId);
+
+        return rows.map((row) => this.mapRowToIndexedFile(row));
+    }
+
+    /**
+     * Get child folders of a given parent folder (or root folders if parentFolderId is null)
+     */
+    async getChildFolders(workspaceId: string, parentFolderId: string | null): Promise<Folder[]> {
+        const sql = parentFolderId 
+            ? `SELECT folder_id, workspace_id, parent_folder_id, folder_path, folder_name, created_at
+               FROM folders_v1 
+               WHERE workspace_id = $1 AND parent_folder_id = $2
+               ORDER BY folder_name`
+            : `SELECT folder_id, workspace_id, parent_folder_id, folder_path, folder_name, created_at
+               FROM folders_v1 
+               WHERE workspace_id = $1 AND parent_folder_id IS NULL
+               ORDER BY folder_name`;
+        
+        const rows = parentFolderId 
+            ? await this.querySQL<{
+                folder_id: string;
+                workspace_id: string;
+                parent_folder_id: string | null;
+                folder_path: string;
+                folder_name: string;
+                created_at: number;
+            }>(sql, workspaceId, parentFolderId)
+            : await this.querySQL<{
+                folder_id: string;
+                workspace_id: string;
+                parent_folder_id: string | null;
+                folder_path: string;
+                folder_name: string;
+                created_at: number;
+            }>(sql, workspaceId);
+
+        return rows.map((row) => ({
+            folderId: row.folder_id,
+            workspaceId: row.workspace_id,
+            parentFolderId: row.parent_folder_id,
+            folderPath: row.folder_path || '',
+            folderName: row.folder_name || '',
+            createdAt: row.created_at,
+        }));
+    }
+
+    /**
+     * Get files in a specific folder by folder ID
+     */
+    async getFilesByFolderId(folderId: string): Promise<IndexedFile[]> {
+        const sql = `
             SELECT f.*, w.workspace_path 
             FROM indexed_files_v1 f
             INNER JOIN workspaces_v1 w ON f.workspace_id = w.workspace_id
@@ -801,12 +947,39 @@ export class VectorDbService {
             folder_id: string;
             file_path: string;
             file_name: string;
-            absolute_path: string;
             file_size: number | null;
             last_indexed_at: number;
             md5_hash: string;
             workspace_path: string;
         }>(sql, folderId);
+
+        return rows.map((row) => this.mapRowToIndexedFile(row));
+    }
+
+    /**
+     * Get root-level files (files without a folder) for a workspace
+     */
+    async getRootFiles(workspaceId: string): Promise<IndexedFile[]> {
+        const sql = `
+            SELECT f.file_id, f.workspace_id, f.folder_id, f.file_path, f.file_name,
+                   f.file_size, f.last_indexed_at, f.md5_hash, w.workspace_path 
+            FROM indexed_files_v1 f
+            INNER JOIN workspaces_v1 w ON f.workspace_id = w.workspace_id
+            WHERE f.workspace_id = $1 AND (f.folder_id IS NULL OR f.folder_id = '')
+            ORDER BY f.file_name
+        `;
+        
+        const rows = await this.querySQL<{
+            file_id: string;
+            workspace_id: string;
+            folder_id: string;
+            file_path: string;
+            file_name: string;
+            file_size: number | null;
+            last_indexed_at: number;
+            md5_hash: string;
+            workspace_path: string;
+        }>(sql, workspaceId);
 
         return rows.map((row) => this.mapRowToIndexedFile(row));
     }

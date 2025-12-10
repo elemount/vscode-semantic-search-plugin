@@ -1,14 +1,14 @@
 /**
  * Index Sidebar View Provider
- * Enhanced tree view with workspace → folder → file → chunk hierarchy
+ * Tree view with workspace → folder → file → chunk hierarchy
+ * Uses database folder structure (folders_v1) instead of path parsing
  */
 
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { IndexingService } from '../services/indexingService';
 import { VectorDbService } from '../services/vectorDbService';
-import { IndexEntry, WorkspaceIndex, CodeChunk } from '../models/types';
-import { normalizePath } from '../utils/fileUtils';
+import { Workspace, Folder, IndexedFile, CodeChunk } from '../models/types';
 
 /**
  * Get file type icon based on extension
@@ -42,128 +42,26 @@ function getFileIcon(filePath: string): vscode.ThemeIcon {
     return new vscode.ThemeIcon(iconMap[ext] || 'file');
 }
 
-/**
- * Folder tree node for hierarchical grouping
- */
-interface FolderTreeNode {
-    name: string;
-    fullPath: string;
-    children: Map<string, FolderTreeNode>;
-    files: IndexEntry[];
-}
-
-/**
- * Build a hierarchical folder tree from entries
- */
-function buildFolderTree(entries: IndexEntry[]): FolderTreeNode {
-    const root: FolderTreeNode = {
-        name: '(root)',
-        fullPath: '',
-        children: new Map(),
-        files: []
-    };
-    
-    for (const entry of entries) {
-        const folder = path.dirname(entry.relativePath);
-        
-        if (folder === '.') {
-            // File is in root
-            root.files.push(entry);
-        } else {
-            // Navigate/create folder hierarchy
-            const parts = folder.split(/[/\\]/);
-            let current = root;
-            let currentPath = '';
-            
-            for (const part of parts) {
-                currentPath = currentPath ? `${currentPath}/${part}` : part;
-                
-                if (!current.children.has(part)) {
-                    current.children.set(part, {
-                        name: part,
-                        fullPath: currentPath,
-                        children: new Map(),
-                        files: []
-                    });
-                }
-                current = current.children.get(part)!;
-            }
-            
-            current.files.push(entry);
-        }
-    }
-    
-    return root;
-}
-
-/**
- * Get immediate children folders from a folder tree node
- */
-function getImmediateChildFolders(root: FolderTreeNode, folderPath: string): FolderTreeNode[] {
-    if (!folderPath || folderPath === '(root)') {
-        // Return root's immediate children
-        return Array.from(root.children.values());
-    }
-    
-    // Navigate to the target folder
-    const parts = folderPath.split(/[/\\]/);
-    let current = root;
-    
-    for (const part of parts) {
-        const child = current.children.get(part);
-        if (!child) {
-            return [];
-        }
-        current = child;
-    }
-    
-    return Array.from(current.children.values());
-}
-
-/**
- * Get files directly in a folder (not in subfolders)
- */
-function getFilesInFolder(root: FolderTreeNode, folderPath: string): IndexEntry[] {
-    if (!folderPath || folderPath === '(root)') {
-        return root.files;
-    }
-    
-    // Navigate to the target folder
-    const parts = folderPath.split(/[/\\]/);
-    let current = root;
-    
-    for (const part of parts) {
-        const child = current.children.get(part);
-        if (!child) {
-            return [];
-        }
-        current = child;
-    }
-    
-    return current.files;
-}
-
-type TreeItemType = 'workspace' | 'folder' | 'indexedFile' | 'chunk' | 'placeholder';
+type TreeItemType = 'workspace' | 'folder' | 'file' | 'chunk' | 'placeholder';
 
 /**
  * Tree item for the index sidebar
  */
 class IndexTreeItem extends vscode.TreeItem {
     public readonly itemType: TreeItemType;
-    
+
     constructor(
         public readonly label: string,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        public readonly entry?: IndexEntry,
-        public readonly workspaceInfo?: WorkspaceIndex,
-        public readonly folderPath?: string,
-        public readonly workspacePath?: string,
+        // Data for different node types
+        public readonly workspace?: Workspace,
+        public readonly folder?: Folder,
+        public readonly file?: IndexedFile,
         public readonly chunk?: CodeChunk,
-        public readonly fileUri?: vscode.Uri
     ) {
         super(label, collapsibleState);
 
-        if (chunk && fileUri) {
+        if (chunk && file) {
             this.itemType = 'chunk';
             const lineRange = `Lines ${chunk.lineStart}-${chunk.lineEnd}`;
             this.tooltip = new vscode.MarkdownString(
@@ -173,61 +71,53 @@ class IndexTreeItem extends vscode.TreeItem {
             this.description = lineRange;
             this.iconPath = new vscode.ThemeIcon('symbol-snippet');
             this.contextValue = 'chunk';
-            
-            // Add command to open file at specific line
+
+            // Command to open file at specific line
             this.command = {
                 command: 'vscode.open',
                 title: 'Open Chunk',
                 arguments: [
-                    fileUri,
+                    vscode.Uri.file(file.filePath),
                     {
                         selection: new vscode.Range(
                             new vscode.Position(chunk.lineStart - 1, 0),
-                            new vscode.Position(chunk.lineEnd - 1, 0)
+                            new vscode.Position(chunk.lineEnd, 2147483647)
                         )
                     }
                 ],
             };
-        } else if (entry) {
-            this.itemType = 'indexedFile';
-            const staleIndicator = entry.isStale ? ' $(warning)' : '';
+        } else if (file) {
+            this.itemType = 'file';
             this.tooltip = new vscode.MarkdownString(
-                `**${entry.relativePath}**${staleIndicator}\n\n` +
-                `- **Chunks:** ${entry.chunkCount}\n` +
-                `- **Last indexed:** ${entry.lastIndexedAt.toLocaleString()}\n` +
-                `- **Status:** ${entry.isStale ? '⚠️ Stale (file changed)' : '✅ Up to date'}`
+                `**${file.fileName}**\n\n` +
+                `- **Path:** ${file.filePath}\n` +
+                `- **Last indexed:** ${new Date(file.lastIndexedAt).toLocaleString()}`
             );
-            this.description = entry.isStale ? `${entry.chunkCount} chunks (stale)` : `${entry.chunkCount} chunks`;
-            this.iconPath = entry.isStale 
-                ? new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'))
-                : getFileIcon(entry.filePath);
+            this.iconPath = getFileIcon(file.filePath);
             this.contextValue = 'indexedFile';
-            
-            // Files are now expandable to show chunks
-            // Only add command if not expandable
+
+            // If not expandable (no chunks), clicking opens the file
             if (collapsibleState === vscode.TreeItemCollapsibleState.None) {
                 this.command = {
                     command: 'vscode.open',
                     title: 'Open File',
-                    arguments: [vscode.Uri.file(entry.filePath)],
+                    arguments: [vscode.Uri.file(file.filePath)],
                 };
             }
-        } else if (workspaceInfo) {
-            this.itemType = 'workspace';
-            const staleCount = 0; // Will be updated dynamically
-            this.tooltip = new vscode.MarkdownString(
-                `**${workspaceInfo.workspacePath}**\n\n` +
-                `- **Files:** ${workspaceInfo.totalFiles}\n` +
-                `- **Chunks:** ${workspaceInfo.totalChunks}\n` +
-                `- **Last updated:** ${workspaceInfo.lastUpdated.toLocaleString()}`
-            );
-            this.description = `${workspaceInfo.totalFiles} files, ${workspaceInfo.totalChunks} chunks`;
-            this.iconPath = new vscode.ThemeIcon('folder-library');
-            this.contextValue = 'workspace';
-        } else if (folderPath) {
+        } else if (folder) {
             this.itemType = 'folder';
+            this.tooltip = folder.folderPath;
             this.iconPath = new vscode.ThemeIcon('folder');
             this.contextValue = 'indexedFolder';
+        } else if (workspace) {
+            this.itemType = 'workspace';
+            this.tooltip = new vscode.MarkdownString(
+                `**${workspace.workspacePath}**\n\n` +
+                `- **Status:** ${workspace.status}\n` +
+                `- **Created:** ${new Date(workspace.createdAt).toLocaleString()}`
+            );
+            this.iconPath = new vscode.ThemeIcon('folder-library');
+            this.contextValue = 'workspace';
         } else {
             this.itemType = 'placeholder';
             this.iconPath = new vscode.ThemeIcon('info');
@@ -246,9 +136,6 @@ export class IndexTreeDataProvider implements vscode.TreeDataProvider<IndexTreeI
 
     private indexingService: IndexingService;
     private vectorDbService: VectorDbService | null = null;
-    private cachedEntries: Map<string, IndexEntry[]> = new Map();
-    private cachedFolderTrees: Map<string, FolderTreeNode> = new Map();
-    private groupByFolder: boolean = true;
     private showChunks: boolean = true;
 
     constructor(indexingService: IndexingService, vectorDbService?: VectorDbService) {
@@ -258,7 +145,6 @@ export class IndexTreeDataProvider implements vscode.TreeDataProvider<IndexTreeI
         // Refresh when indexing status changes
         this.indexingService.onStatusChange((status) => {
             if (!status.isIndexing) {
-                this.clearCache();
                 this.refresh();
             }
         });
@@ -268,19 +154,9 @@ export class IndexTreeDataProvider implements vscode.TreeDataProvider<IndexTreeI
         this.vectorDbService = service;
     }
 
-    setGroupByFolder(enabled: boolean): void {
-        this.groupByFolder = enabled;
-        this.refresh();
-    }
-
     setShowChunks(enabled: boolean): void {
         this.showChunks = enabled;
         this.refresh();
-    }
-
-    clearCache(): void {
-        this.cachedEntries.clear();
-        this.cachedFolderTrees.clear();
     }
 
     refresh(): void {
@@ -292,189 +168,159 @@ export class IndexTreeDataProvider implements vscode.TreeDataProvider<IndexTreeI
     }
 
     async getChildren(element?: IndexTreeItem): Promise<IndexTreeItem[]> {
-        if (!element) {
-            // Root level - show workspace folders
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            if (!workspaceFolders || workspaceFolders.length === 0) {
-                return [
-                    new IndexTreeItem(
-                        'No workspace open',
-                        vscode.TreeItemCollapsibleState.None
-                    ),
-                ];
-            }
+        if (!this.vectorDbService) {
+            return [
+                new IndexTreeItem(
+                    'Database not initialized',
+                    vscode.TreeItemCollapsibleState.None
+                ),
+            ];
+        }
 
-            const items: IndexTreeItem[] = [];
-
-            for (const folder of workspaceFolders) {
-                try {
-                    const workspacePath = normalizePath(folder.uri.fsPath);
-                    console.log('IndexSidebar: Getting entries for workspace:', workspacePath);
-                    const entries = await this.indexingService.getIndexEntries(workspacePath);
-                    console.log('IndexSidebar: Got entries:', entries.length);
-                    this.cachedEntries.set(workspacePath, entries);
-
-                    const workspaceInfo: WorkspaceIndex = {
-                        workspacePath,
-                        totalFiles: entries.length,
-                        totalChunks: entries.reduce((sum, e) => sum + e.chunkCount, 0),
-                        lastUpdated: entries.length > 0
-                            ? new Date(Math.max(...entries.map((e) => e.lastIndexedAt.getTime())))
-                            : new Date(),
-                    };
-
-                    items.push(
-                        new IndexTreeItem(
-                            folder.name,
-                            vscode.TreeItemCollapsibleState.Collapsed,
-                            undefined,
-                            workspaceInfo
-                        )
-                    );
-                } catch (error) {
-                    console.error('IndexSidebar: Error getting index entries for workspace:', folder.name, error);
-                    const errorMessage = error instanceof Error ? error.message : String(error);
-                    const item = new IndexTreeItem(
-                        folder.name,
-                        vscode.TreeItemCollapsibleState.None
-                    );
-                    item.description = 'Error loading';
-                    item.tooltip = `Error: ${errorMessage}`;
-                    items.push(item);
-                }
+        try {
+            if (!element) {
+                // Root level - show indexed workspaces
+                return this.getWorkspaceItems();
+            } else if (element.workspace) {
+                // Workspace level - show root folders and root files
+                return this.getWorkspaceChildren(element.workspace);
+            } else if (element.folder) {
+                // Folder level - show subfolders and files
+                return this.getFolderChildren(element.folder);
+            } else if (element.file && this.showChunks) {
+                // File level - show chunks
+                return this.getFileChunks(element.file);
             }
-
-            return items;
-        } else if (element.workspaceInfo) {
-            // Workspace level - show folders or files
-            let entries = this.cachedEntries.get(element.workspaceInfo.workspacePath);
-            if (!entries) {
-                entries = await this.indexingService.getIndexEntries(element.workspaceInfo.workspacePath);
-                this.cachedEntries.set(element.workspaceInfo.workspacePath, entries);
-            }
-
-            if (entries.length === 0) {
-                return [
-                    new IndexTreeItem(
-                        'No files indexed. Click "Build Index" to start.',
-                        vscode.TreeItemCollapsibleState.None
-                    ),
-                ];
-            }
-
-            if (this.groupByFolder) {
-                // Build folder tree if not cached
-                let folderTree = this.cachedFolderTrees.get(element.workspaceInfo.workspacePath);
-                if (!folderTree) {
-                    folderTree = buildFolderTree(entries);
-                    this.cachedFolderTrees.set(element.workspaceInfo.workspacePath, folderTree);
-                }
-                
-                const items: IndexTreeItem[] = [];
-                
-                // Show immediate child folders
-                const childFolders = getImmediateChildFolders(folderTree, '');
-                for (const folder of childFolders.sort((a, b) => a.name.localeCompare(b.name))) {
-                    const item = new IndexTreeItem(
-                        folder.name,
-                        vscode.TreeItemCollapsibleState.Collapsed,
-                        undefined,
-                        undefined,
-                        folder.fullPath,
-                        element.workspaceInfo.workspacePath
-                    );
-                    items.push(item);
-                }
-                
-                // Show root-level files
-                const rootFiles = getFilesInFolder(folderTree, '');
-                for (const entry of rootFiles.sort((a, b) => path.basename(a.relativePath).localeCompare(path.basename(b.relativePath)))) {
-                    items.push(new IndexTreeItem(
-                        path.basename(entry.relativePath),
-                        this.showChunks && entry.chunkCount > 0 
-                            ? vscode.TreeItemCollapsibleState.Collapsed 
-                            : vscode.TreeItemCollapsibleState.None,
-                        entry
-                    ));
-                }
-                
-                return items;
-            } else {
-                // Flat list
-                return entries
-                    .sort((a, b) => a.relativePath.localeCompare(b.relativePath))
-                    .map(entry => new IndexTreeItem(
-                        entry.relativePath,
-                        vscode.TreeItemCollapsibleState.None,
-                        entry
-                    ));
-            }
-        } else if (element.folderPath && element.workspacePath) {
-            // Folder level - show subfolders and files in this folder
-            let folderTree = this.cachedFolderTrees.get(element.workspacePath);
-            if (!folderTree) {
-                // Rebuild folder tree if not cached
-                let entries = this.cachedEntries.get(element.workspacePath);
-                if (!entries) {
-                    entries = await this.indexingService.getIndexEntries(element.workspacePath);
-                    this.cachedEntries.set(element.workspacePath, entries);
-                }
-                folderTree = buildFolderTree(entries);
-                this.cachedFolderTrees.set(element.workspacePath, folderTree);
-            }
-            
-            const items: IndexTreeItem[] = [];
-            
-            // Show child folders
-            const childFolders = getImmediateChildFolders(folderTree, element.folderPath);
-            for (const folder of childFolders.sort((a, b) => a.name.localeCompare(b.name))) {
-                const item = new IndexTreeItem(
-                    folder.name,
-                    vscode.TreeItemCollapsibleState.Collapsed,
-                    undefined,
-                    undefined,
-                    folder.fullPath,
-                    element.workspacePath
-                );
-                items.push(item);
-            }
-            
-            // Show files directly in this folder
-            const folderFiles = getFilesInFolder(folderTree, element.folderPath);
-            for (const entry of folderFiles.sort((a, b) => path.basename(a.relativePath).localeCompare(path.basename(b.relativePath)))) {
-                items.push(new IndexTreeItem(
-                    path.basename(entry.relativePath),
-                    this.showChunks && entry.chunkCount > 0 
-                        ? vscode.TreeItemCollapsibleState.Collapsed 
-                        : vscode.TreeItemCollapsibleState.None,
-                    entry
-                ));
-            }
-            
-            return items;
-        } else if (element.entry && this.showChunks && this.vectorDbService) {
-            // File level - show chunks
-            const chunks = await this.vectorDbService.getChunksForFile(element.entry.fileId);
-            
-            if (chunks.length === 0) {
-                return [];
-            }
-
-            const fileUri = vscode.Uri.file(element.entry.filePath);
-            
-            return chunks.map((chunk, index) => new IndexTreeItem(
-                `Chunk ${index + 1}`,
-                vscode.TreeItemCollapsibleState.None,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                chunk,
-                fileUri
-            ));
+        } catch (error) {
+            console.error('IndexSidebar: Error getting children:', error);
+            return [
+                new IndexTreeItem(
+                    `Error: ${error instanceof Error ? error.message : String(error)}`,
+                    vscode.TreeItemCollapsibleState.None
+                ),
+            ];
         }
 
         return [];
+    }
+
+    /**
+     * Get workspace tree items from database
+     */
+    private async getWorkspaceItems(): Promise<IndexTreeItem[]> {
+        const workspaces = await this.vectorDbService!.getAllWorkspaces();
+
+        if (workspaces.length === 0) {
+            return [
+                new IndexTreeItem(
+                    'No workspaces indexed. Click "+" to add a workspace.',
+                    vscode.TreeItemCollapsibleState.None
+                ),
+            ];
+        }
+
+        return workspaces.map(workspace => new IndexTreeItem(
+            workspace.workspaceName,
+            vscode.TreeItemCollapsibleState.Collapsed,
+            workspace
+        ));
+    }
+
+    /**
+     * Get children of a workspace (root folders + root files)
+     */
+    private async getWorkspaceChildren(workspace: Workspace): Promise<IndexTreeItem[]> {
+        const items: IndexTreeItem[] = [];
+
+        // Get root folders (folders with no parent)
+        const rootFolders = await this.vectorDbService!.getChildFolders(workspace.workspaceId, null);
+        for (const folder of rootFolders.sort((a, b) => a.folderName.localeCompare(b.folderName))) {
+            items.push(new IndexTreeItem(
+                folder.folderName,
+                vscode.TreeItemCollapsibleState.Collapsed,
+                undefined,
+                folder
+            ));
+        }
+
+        // Get root files (files without a folder)
+        const rootFiles = await this.vectorDbService!.getRootFiles(workspace.workspaceId);
+        for (const file of rootFiles.sort((a, b) => a.fileName.localeCompare(b.fileName))) {
+            const chunkCount = await this.vectorDbService!.getFileChunkCount(file.fileId);
+            const hasChunks = this.showChunks && chunkCount > 0;
+            items.push(new IndexTreeItem(
+                file.fileName,
+                hasChunks ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+                undefined,
+                undefined,
+                file
+            ));
+        }
+
+        if (items.length === 0) {
+            return [
+                new IndexTreeItem(
+                    'No files indexed yet',
+                    vscode.TreeItemCollapsibleState.None
+                ),
+            ];
+        }
+
+        return items;
+    }
+
+    /**
+     * Get children of a folder (subfolders + files)
+     */
+    private async getFolderChildren(folder: Folder): Promise<IndexTreeItem[]> {
+        const items: IndexTreeItem[] = [];
+
+        // Get subfolders
+        const subfolders = await this.vectorDbService!.getChildFolders(folder.workspaceId, folder.folderId);
+        for (const subfolder of subfolders.sort((a, b) => a.folderName.localeCompare(b.folderName))) {
+            items.push(new IndexTreeItem(
+                subfolder.folderName,
+                vscode.TreeItemCollapsibleState.Collapsed,
+                undefined,
+                subfolder
+            ));
+        }
+
+        // Get files in this folder
+        const files = await this.vectorDbService!.getFilesByFolderId(folder.folderId);
+        for (const file of files.sort((a, b) => a.fileName.localeCompare(b.fileName))) {
+            const chunkCount = await this.vectorDbService!.getFileChunkCount(file.fileId);
+            const hasChunks = this.showChunks && chunkCount > 0;
+            items.push(new IndexTreeItem(
+                file.fileName,
+                hasChunks ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+                undefined,
+                undefined,
+                file
+            ));
+        }
+
+        return items;
+    }
+
+    /**
+     * Get chunks for a file
+     */
+    private async getFileChunks(file: IndexedFile): Promise<IndexTreeItem[]> {
+        const chunks = await this.vectorDbService!.getChunksForFile(file.fileId);
+
+        if (chunks.length === 0) {
+            return [];
+        }
+
+        return chunks.map((chunk, index) => new IndexTreeItem(
+            `Chunk ${index + 1}`,
+            vscode.TreeItemCollapsibleState.None,
+            undefined,
+            undefined,
+            file,  // Pass file for opening
+            chunk
+        ));
     }
 }
 
@@ -496,16 +342,7 @@ export function registerIndexSidebarView(
     // Register refresh command
     context.subscriptions.push(
         vscode.commands.registerCommand('semantic-search.refreshIndex', () => {
-            treeDataProvider.clearCache();
             treeDataProvider.refresh();
-        })
-    );
-
-    // Register toggle group by folder command
-    context.subscriptions.push(
-        vscode.commands.registerCommand('semantic-search.toggleGroupByFolder', () => {
-            const current = treeDataProvider['groupByFolder'];
-            treeDataProvider.setGroupByFolder(!current);
         })
     );
 
@@ -520,27 +357,21 @@ export function registerIndexSidebarView(
     // Register reindex single file command
     context.subscriptions.push(
         vscode.commands.registerCommand('semantic-search.reindexFile', async (item: IndexTreeItem) => {
-            if (item?.entry) {
-                const workspaceFolder = vscode.workspace.getWorkspaceFolder(
-                    vscode.Uri.file(item.entry.filePath)
+            if (item?.file) {
+                await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: `Reindexing ${item.file.fileName}...`,
+                    },
+                    async () => {
+                        await indexingService.indexFile(
+                            vscode.Uri.file(item.file!.filePath),
+                            item.file!.workspacePath || ''
+                        );
+                        treeDataProvider.refresh();
+                    }
                 );
-                if (workspaceFolder) {
-                    await vscode.window.withProgress(
-                        {
-                            location: vscode.ProgressLocation.Notification,
-                            title: `Reindexing ${item.entry.relativePath}...`,
-                        },
-                        async () => {
-                            await indexingService.indexFile(
-                                vscode.Uri.file(item.entry!.filePath),
-                                workspaceFolder.uri.fsPath
-                            );
-                            treeDataProvider.clearCache();
-                            treeDataProvider.refresh();
-                        }
-                    );
-                    vscode.window.showInformationMessage(`Reindexed ${item.entry.relativePath}`);
-                }
+                vscode.window.showInformationMessage(`Reindexed ${item.file.fileName}`);
             }
         })
     );
@@ -548,43 +379,38 @@ export function registerIndexSidebarView(
     // Register reindex folder command
     context.subscriptions.push(
         vscode.commands.registerCommand('semantic-search.reindexFolder', async (item: IndexTreeItem) => {
-            if (item?.folderPath && item?.workspacePath) {
-                const entries = treeDataProvider['cachedEntries'].get(item.workspacePath) || [];
-                const folderEntries = entries.filter(e => 
-                    e.relativePath.startsWith(item.folderPath + '/') || 
-                    e.relativePath.startsWith(item.folderPath + '\\')
-                );
+            if (item?.folder && vectorDbService) {
+                const files = await vectorDbService.getFilesByFolderId(item.folder.folderId);
                 
-                if (folderEntries.length === 0) {
-                    vscode.window.showInformationMessage(`No indexed files in folder ${item.folderPath}`);
+                if (files.length === 0) {
+                    vscode.window.showInformationMessage(`No indexed files in folder ${item.folder.folderName}`);
                     return;
                 }
 
                 await vscode.window.withProgress(
                     {
                         location: vscode.ProgressLocation.Notification,
-                        title: `Reindexing folder ${item.folderPath}...`,
+                        title: `Reindexing folder ${item.folder.folderName}...`,
                         cancellable: true,
                     },
                     async (progress, token) => {
                         let indexed = 0;
-                        for (const entry of folderEntries) {
+                        for (const file of files) {
                             if (token.isCancellationRequested) {
                                 break;
                             }
                             progress.report({ 
-                                message: `${indexed + 1}/${folderEntries.length}: ${path.basename(entry.relativePath)}`,
-                                increment: 100 / folderEntries.length 
+                                message: `${indexed + 1}/${files.length}: ${file.fileName}`,
+                                increment: 100 / files.length 
                             });
                             await indexingService.indexFile(
-                                vscode.Uri.file(entry.filePath),
-                                item.workspacePath!
+                                vscode.Uri.file(file.filePath),
+                                file.workspacePath || ''
                             );
                             indexed++;
                         }
-                        treeDataProvider.clearCache();
                         treeDataProvider.refresh();
-                        vscode.window.showInformationMessage(`Reindexed ${indexed} files in ${item.folderPath}`);
+                        vscode.window.showInformationMessage(`Reindexed ${indexed} files in ${item.folder!.folderName}`);
                     }
                 );
             }
@@ -594,20 +420,16 @@ export function registerIndexSidebarView(
     // Register delete folder index command
     context.subscriptions.push(
         vscode.commands.registerCommand('semantic-search.deleteFolderIndex', async (item: IndexTreeItem) => {
-            if (item?.folderPath && item?.workspacePath) {
-                const entries = treeDataProvider['cachedEntries'].get(item.workspacePath) || [];
-                const folderEntries = entries.filter(e => 
-                    e.relativePath.startsWith(item.folderPath + '/') || 
-                    e.relativePath.startsWith(item.folderPath + '\\')
-                );
+            if (item?.folder && vectorDbService) {
+                const files = await vectorDbService.getFilesByFolderId(item.folder.folderId);
                 
-                if (folderEntries.length === 0) {
-                    vscode.window.showInformationMessage(`No indexed files in folder ${item.folderPath}`);
+                if (files.length === 0) {
+                    vscode.window.showInformationMessage(`No indexed files in folder ${item.folder.folderName}`);
                     return;
                 }
 
                 const confirm = await vscode.window.showWarningMessage(
-                    `Delete index for ${folderEntries.length} files in folder ${item.folderPath}?`,
+                    `Delete index for ${files.length} files in folder ${item.folder.folderName}?`,
                     { modal: true },
                     'Delete'
                 );
@@ -619,15 +441,14 @@ export function registerIndexSidebarView(
                 await vscode.window.withProgress(
                     {
                         location: vscode.ProgressLocation.Notification,
-                        title: `Deleting folder index ${item.folderPath}...`,
+                        title: `Deleting folder index ${item.folder.folderName}...`,
                     },
                     async () => {
-                        for (const entry of folderEntries) {
-                            await indexingService.deleteFileIndex(entry.filePath);
+                        for (const file of files) {
+                            await indexingService.deleteFileIndex(file.filePath);
                         }
-                        treeDataProvider.clearCache();
                         treeDataProvider.refresh();
-                        vscode.window.showInformationMessage(`Deleted index for ${folderEntries.length} files in ${item.folderPath}`);
+                        vscode.window.showInformationMessage(`Deleted index for ${files.length} files in ${item.folder!.folderName}`);
                     }
                 );
             }
@@ -637,16 +458,26 @@ export function registerIndexSidebarView(
     // Register reindex workspace command
     context.subscriptions.push(
         vscode.commands.registerCommand('semantic-search.reindexWorkspace', async (item: IndexTreeItem) => {
-            if (item?.workspaceInfo) {
-                const workspaceFolder = vscode.workspace.workspaceFolders?.find(
-                    f => normalizePath(f.uri.fsPath) === item.workspaceInfo!.workspacePath
-                );
+            if (item?.workspace) {
+                // Create a pseudo workspace folder for indexing
+                const pseudoWorkspaceFolder: vscode.WorkspaceFolder = {
+                    uri: vscode.Uri.file(item.workspace.workspacePath),
+                    name: item.workspace.workspaceName,
+                    index: -1,
+                };
                 
-                if (workspaceFolder) {
-                    await vscode.commands.executeCommand('semantic-search.buildIndex', workspaceFolder);
-                    treeDataProvider.clearCache();
-                    treeDataProvider.refresh();
-                }
+                await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: `Reindexing workspace ${item.workspace.workspaceName}...`,
+                        cancellable: false,
+                    },
+                    async (progress) => {
+                        await indexingService.indexWorkspace(pseudoWorkspaceFolder, progress);
+                        treeDataProvider.refresh();
+                    }
+                );
+                vscode.window.showInformationMessage(`Reindexed workspace ${item.workspace.workspaceName}`);
             }
         })
     );
@@ -654,9 +485,9 @@ export function registerIndexSidebarView(
     // Register delete workspace index command
     context.subscriptions.push(
         vscode.commands.registerCommand('semantic-search.deleteWorkspaceIndex', async (item: IndexTreeItem) => {
-            if (item?.workspaceInfo) {
+            if (item?.workspace) {
                 const confirm = await vscode.window.showWarningMessage(
-                    `Delete entire index for workspace ${path.basename(item.workspaceInfo.workspacePath)}? This will remove ${item.workspaceInfo.totalFiles} indexed files.`,
+                    `Delete entire index for workspace ${item.workspace.workspaceName}?`,
                     { modal: true },
                     'Delete'
                 );
@@ -671,8 +502,7 @@ export function registerIndexSidebarView(
                         title: `Deleting workspace index...`,
                     },
                     async () => {
-                        await indexingService.deleteWorkspaceIndex(item.workspaceInfo!.workspacePath);
-                        treeDataProvider.clearCache();
+                        await indexingService.deleteWorkspaceIndex(item.workspace!.workspacePath);
                         treeDataProvider.refresh();
                         vscode.window.showInformationMessage(`Workspace index deleted`);
                     }
@@ -684,8 +514,8 @@ export function registerIndexSidebarView(
     // Register reveal in explorer command
     context.subscriptions.push(
         vscode.commands.registerCommand('semantic-search.revealInExplorer', async (item: IndexTreeItem) => {
-            if (item?.entry) {
-                const uri = vscode.Uri.file(item.entry.filePath);
+            if (item?.file) {
+                const uri = vscode.Uri.file(item.file.filePath);
                 await vscode.commands.executeCommand('revealInExplorer', uri);
             }
         })
@@ -694,8 +524,8 @@ export function registerIndexSidebarView(
     // Register copy path command
     context.subscriptions.push(
         vscode.commands.registerCommand('semantic-search.copyPath', async (item: IndexTreeItem) => {
-            if (item?.entry) {
-                await vscode.env.clipboard.writeText(item.entry.filePath);
+            if (item?.file) {
+                await vscode.env.clipboard.writeText(item.file.filePath);
                 vscode.window.showInformationMessage('Path copied to clipboard');
             }
         })

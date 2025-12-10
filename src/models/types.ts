@@ -20,7 +20,7 @@ export interface Folder {
     folderId: string;
     workspaceId: string;
     parentFolderId: string | null;
-    folderPath: string; // Full relative path, e.g., 'src/components'
+    folderPath: string; // Absolute path, e.g., 'C:/project/src/components'
     folderName: string; // Just the folder name, e.g., 'components'
     createdAt: number; // Unix timestamp
 }
@@ -32,9 +32,8 @@ export interface IndexedFile {
     fileId: string;
     workspaceId: string;
     folderId: string;
-    filePath: string; // Full relative path, e.g., 'src/components/Button.tsx'
+    filePath: string; // Absolute path, e.g., 'C:/project/src/components/Button.tsx'
     fileName: string; // Just 'Button.tsx'
-    absolutePath: string;
     fileSize?: number;
     lastIndexedAt: number; // Unix timestamp
     md5Hash: string;

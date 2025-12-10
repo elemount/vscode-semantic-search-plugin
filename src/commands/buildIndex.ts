@@ -99,6 +99,98 @@ export function registerBuildIndexCommand(
 }
 
 /**
+ * Add workspace to index command - allows adding external folders to the index
+ */
+export function registerAddWorkspaceToIndexCommand(
+    context: vscode.ExtensionContext,
+    indexingService: IndexingService,
+    embeddingService?: EmbeddingService,
+    statusBarManager?: StatusBarManager
+): vscode.Disposable {
+    return vscode.commands.registerCommand(
+        'semantic-search.addWorkspaceToIndex',
+        async () => {
+            // Open folder picker to select a folder to add
+            const selectedFolders = await vscode.window.showOpenDialog({
+                canSelectFiles: false,
+                canSelectFolders: true,
+                canSelectMany: false,
+                openLabel: 'Add to Index',
+                title: 'Select a folder to add to the semantic search index',
+            });
+
+            if (!selectedFolders || selectedFolders.length === 0) {
+                return;
+            }
+
+            const folderUri = selectedFolders[0];
+            const folderPath = normalizePath(folderUri.fsPath);
+            const folderName = folderPath.replace(/\\/g, '/').split('/').pop() || folderPath;
+
+            // Ensure embedding model is loaded
+            if (embeddingService && statusBarManager) {
+                await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: 'Semantic Search',
+                        cancellable: false,
+                    },
+                    async (progress) => {
+                        const state = embeddingService.getState();
+                        if (state === 'not-loaded') {
+                            progress.report({ message: 'Loading embedding model...' });
+                            statusBarManager.updateModelStatus('loading');
+                            
+                            await embeddingService.ensureInitialized((p) => {
+                                if (p.status === 'progress' && p.total) {
+                                    const percent = Math.round((p.loaded || 0) / p.total * 100);
+                                    progress.report({ 
+                                        message: `Loading model: ${percent}%`,
+                                        increment: 0
+                                    });
+                                    statusBarManager.updateModelStatus('loading', percent);
+                                }
+                            });
+                            
+                            statusBarManager.updateModelStatus('ready');
+                        }
+                    }
+                );
+            }
+
+            // Run indexing with progress
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Adding ${folderName} to Index`,
+                    cancellable: false,
+                },
+                async (progress) => {
+                    try {
+                        // Create a pseudo workspace folder for indexing
+                        const pseudoWorkspaceFolder: vscode.WorkspaceFolder = {
+                            uri: folderUri,
+                            name: folderName,
+                            index: -1, // Indicates it's not a real workspace folder
+                        };
+                        await indexingService.indexWorkspace(pseudoWorkspaceFolder, progress);
+                        vscode.window.showInformationMessage(
+                            `Successfully added ${folderName} to the index`
+                        );
+                        // Refresh the index view
+                        await vscode.commands.executeCommand('semantic-search.refreshIndex');
+                    } catch (error) {
+                        vscode.window.showErrorMessage(
+                            `Failed to add folder to index: ${error instanceof Error ? error.message : String(error)}`
+                        );
+                    }
+                }
+            );
+        }
+    );
+}
+
+/**
  * Index specific files/folders command
  */
 export function registerIndexFilesCommand(

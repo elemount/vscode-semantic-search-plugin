@@ -168,9 +168,8 @@ export class IndexingService {
             fileId,
             workspaceId,
             folderId: '', // Will be derived by vectorDbService
-            filePath,
+            filePath, // Now stores absolute path
             fileName: filePath.replace(/\\/g, '/').split('/').pop() || filePath,
-            absolutePath: filePath,
             md5Hash,
             lastIndexedAt: Date.now(),
             workspacePath,
@@ -247,9 +246,10 @@ export class IndexingService {
      */
     async getIndexEntries(workspacePath?: string): Promise<IndexEntry[]> {
         let files: IndexedFile[];
+        const normalizedWorkspacePath = workspacePath ? normalizePath(workspacePath) : undefined;
 
-        if (workspacePath) {
-            files = await this.vectorDbService.getIndexedFilesForWorkspace(normalizePath(workspacePath));
+        if (normalizedWorkspacePath) {
+            files = await this.vectorDbService.getIndexedFilesForWorkspace(normalizedWorkspacePath);
         } else {
             files = await this.vectorDbService.getAllIndexedFiles();
         }
@@ -259,8 +259,10 @@ export class IndexingService {
         for (const file of files) {
             // Check if file is stale (content changed since indexing)
             let isStale = false;
+            // file.filePath is now absolute path
+            const actualFilePath = file.filePath;
             try {
-                const uri = vscode.Uri.file(file.filePath);
+                const uri = vscode.Uri.file(actualFilePath);
                 const content = await readFileContent(uri);
                 const currentHash = calculateMD5(content);
                 isStale = currentHash !== file.md5Hash;
@@ -272,10 +274,14 @@ export class IndexingService {
             // Use stored chunk count if available, otherwise query
             const chunkCount = await this.vectorDbService.getFileChunkCount(file.fileId);
 
+            // Determine the workspace path to use for relative path calculation
+            // Priority: file.workspacePath > passed workspacePath
+            const effectiveWorkspacePath = file.workspacePath || normalizedWorkspacePath || '';
+            
             entries.push({
                 fileId: file.fileId,
-                filePath: file.filePath,
-                relativePath: getRelativePath(file.workspacePath || '', file.filePath),
+                filePath: actualFilePath, // Absolute path
+                relativePath: getRelativePath(effectiveWorkspacePath, actualFilePath),
                 isStale,
                 lastIndexedAt: new Date(file.lastIndexedAt),
                 chunkCount,

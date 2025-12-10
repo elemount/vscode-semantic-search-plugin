@@ -13,7 +13,7 @@ import { SearchService } from './services/searchService';
 import { StatusBarManager } from './services/statusBarManager';
 import { FileWatcherService } from './services/fileWatcherService';
 import { getLogger } from './services/logger';
-import { registerBuildIndexCommand, registerIndexFilesCommand } from './commands/buildIndex';
+import { registerBuildIndexCommand, registerIndexFilesCommand, registerAddWorkspaceToIndexCommand } from './commands/buildIndex';
 import { registerSearchCommand, registerQuickSearchCommand, registerSearchWithPanelCommand } from './commands/search';
 import { registerDeleteIndexCommand, registerDeleteFileIndexCommand } from './commands/deleteIndex';
 import { registerIndexSidebarView } from './views/indexSidebar';
@@ -78,6 +78,7 @@ export async function activate(context: vscode.ExtensionContext) {
         context.subscriptions.push(
             registerBuildIndexCommand(context, indexingService, embeddingService, statusBarManager),
             registerIndexFilesCommand(context, indexingService, embeddingService, statusBarManager),
+            registerAddWorkspaceToIndexCommand(context, indexingService, embeddingService, statusBarManager),
             registerSearchCommand(context, searchService, embeddingService, statusBarManager),
             registerSearchWithPanelCommand(context, searchService, embeddingService, statusBarManager),
             registerQuickSearchCommand(context, searchService, embeddingService, statusBarManager),

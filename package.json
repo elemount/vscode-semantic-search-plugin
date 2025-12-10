@@ -22,6 +22,12 @@
         "icon": "$(database)"
       },
       {
+        "command": "semantic-search.addWorkspaceToIndex",
+        "title": "Add Workspace to Index",
+        "category": "Semantic Search",
+        "icon": "$(add)"
+      },
+      {
         "command": "semantic-search.indexFiles",
         "title": "Index Files/Folders",
         "category": "Semantic Search",
@@ -94,12 +100,6 @@
         "icon": "$(trash)"
       },
       {
-        "command": "semantic-search.toggleGroupByFolder",
-        "title": "Toggle Group by Folder",
-        "category": "Semantic Search",
-        "icon": "$(list-tree)"
-      },
-      {
         "command": "semantic-search.toggleShowChunks",
         "title": "Toggle Show Chunks",
         "category": "Semantic Search",
@@ -165,7 +165,7 @@
     "menus": {
       "view/title": [
         {
-          "command": "semantic-search.buildIndex",
+          "command": "semantic-search.addWorkspaceToIndex",
           "when": "view == semanticSearchIndex",
           "group": "navigation@1"
         },
@@ -175,14 +175,9 @@
           "group": "navigation@2"
         },
         {
-          "command": "semantic-search.toggleGroupByFolder",
-          "when": "view == semanticSearchIndex",
-          "group": "navigation@3"
-        },
-        {
           "command": "semantic-search.toggleShowChunks",
           "when": "view == semanticSearchIndex",
-          "group": "navigation@4"
+          "group": "navigation@3"
         },
         {
           "command": "semantic-search.clearSearchResults",
