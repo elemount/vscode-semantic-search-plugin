@@ -69,6 +69,24 @@ export class EmbeddingService {
     }
     
     /**
+     * Generate embedding for a search query
+     * Uses retrieval query task format
+     */
+    async embedQuery(query: string): Promise<number[]> {
+        const formattedQuery = `task: search result | query: ${query}`;
+        return this.embed(formattedQuery);
+    }
+    
+    /**
+     * Generate embedding for a document chunk
+     * Uses retrieval document task format
+     */
+    async embedDocument(content: string, title?: string): Promise<number[]> {
+        const formattedDoc = `title: ${title || 'none'} | text: ${content}`;
+        return this.embed(formattedDoc);
+    }
+    
+    /**
      * Generate embeddings for multiple texts
      */
     async embedBatch(texts: string[]): Promise<number[][]> {

@@ -211,8 +211,8 @@ export class VectorDbService {
      * Add a code chunk with its embedding
      */
     async addChunk(chunk: CodeChunk): Promise<void> {
-        // Generate embedding
-        const embedding = await this.embeddingService.embed(chunk.content);
+        // Generate embedding using document task format
+        const embedding = await this.embeddingService.embedDocument(chunk.content, chunk.filePath);
         
         // Format embedding as DuckDB array literal
         const embeddingStr = `[${embedding.join(',')}]::FLOAT[${this.dimensions}]`;
@@ -262,8 +262,8 @@ export class VectorDbService {
         workspacePath?: string,
         limit: number = 10
     ): Promise<SearchResult[]> {
-        // Generate query embedding
-        const queryEmbedding = await this.embeddingService.embed(query);
+        // Generate query embedding using query task format
+        const queryEmbedding = await this.embeddingService.embedQuery(query);
         const embeddingStr = `[${queryEmbedding.join(',')}]::FLOAT[${this.dimensions}]`;
         
         let sql = `
