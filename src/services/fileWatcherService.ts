@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { IndexingService } from './indexingService';
 import { IndexingConfig, DEFAULT_INDEXING_CONFIG } from '../models/types';
 import { minimatch } from 'minimatch';
+import { getLogger } from './logger';
 
 export class FileWatcherService {
     private disposables: vscode.Disposable[] = [];
@@ -25,11 +26,11 @@ export class FileWatcherService {
         // Check if auto-indexing is enabled
         const autoIndex = vscode.workspace.getConfiguration('semanticSearch').get<boolean>('autoIndex', false);
         if (!autoIndex) {
-            console.log('Auto-indexing is disabled');
+            getLogger().debug('FileWatcher', 'Auto-indexing is disabled');
             return;
         }
 
-        console.log('Starting file watcher for auto-indexing...');
+        getLogger().info('FileWatcher', 'Starting file watcher for auto-indexing...');
 
         // Watch for file saves
         this.disposables.push(
@@ -78,14 +79,14 @@ export class FileWatcherService {
             })
         );
 
-        console.log('File watcher started');
+        getLogger().info('FileWatcher', 'File watcher started');
     }
 
     /**
      * Stop watching for file changes
      */
     stop(): void {
-        console.log('Stopping file watcher...');
+        getLogger().info('FileWatcher', 'Stopping file watcher...');
         
         // Clear pending file operations
         for (const timeout of this.pendingFiles.values()) {
@@ -117,7 +118,7 @@ export class FileWatcherService {
             return;
         }
 
-        console.log(`File ${changeType}: ${filePath}`);
+        getLogger().debug('FileWatcher', `File ${changeType}: ${filePath}`);
 
         // Debounce rapid changes to the same file
         const existingTimeout = this.pendingFiles.get(filePath);
@@ -130,9 +131,9 @@ export class FileWatcherService {
             
             try {
                 await this.indexingService.indexFile(uri, workspaceFolder.uri.fsPath);
-                console.log(`Auto-indexed: ${filePath}`);
+                getLogger().info('FileWatcher', `Auto-indexed: ${filePath}`);
             } catch (error) {
-                console.error(`Failed to auto-index ${filePath}:`, error);
+                getLogger().error('FileWatcher', `Failed to auto-index ${filePath}`, error);
             }
         }, this.debounceMs);
 
@@ -154,9 +155,9 @@ export class FileWatcherService {
 
         try {
             await this.indexingService.deleteFileIndex(filePath);
-            console.log(`Removed index for deleted file: ${filePath}`);
+            getLogger().info('FileWatcher', `Removed index for deleted file: ${filePath}`);
         } catch (error) {
-            console.error(`Failed to remove index for ${filePath}:`, error);
+            getLogger().error('FileWatcher', `Failed to remove index for ${filePath}`, error);
         }
     }
 

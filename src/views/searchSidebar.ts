@@ -8,6 +8,7 @@ import * as path from 'path';
 import { SearchService } from '../services/searchService';
 import { SearchResult } from '../models/types';
 import { SearchResultsPanel } from './searchResultsPanel';
+import { getLogger } from '../services/logger';
 import { minimatch } from 'minimatch';
 
 export class SearchSidebarProvider implements vscode.WebviewViewProvider {
@@ -193,7 +194,7 @@ export class SearchSidebarProvider implements vscode.WebviewViewProvider {
                 });
             }
         } catch (error) {
-            console.error('Search error:', error);
+            getLogger().error('SearchSidebar', 'Search error', error);
             vscode.window.showErrorMessage(
                 `Search failed: ${error instanceof Error ? error.message : String(error)}`
             );

@@ -12,6 +12,7 @@ import { IndexingService } from './services/indexingService';
 import { SearchService } from './services/searchService';
 import { StatusBarManager } from './services/statusBarManager';
 import { FileWatcherService } from './services/fileWatcherService';
+import { getLogger } from './services/logger';
 import { registerBuildIndexCommand, registerIndexFilesCommand } from './commands/buildIndex';
 import { registerSearchCommand, registerQuickSearchCommand, registerSearchWithPanelCommand } from './commands/search';
 import { registerDeleteIndexCommand, registerDeleteFileIndexCommand } from './commands/deleteIndex';
@@ -32,12 +33,13 @@ let fileWatcherService: FileWatcherService;
  * Activate the extension
  */
 export async function activate(context: vscode.ExtensionContext) {
-    console.log('Semantic Search extension is activating...');
+    const logger = getLogger();
+    logger.info('Extension', 'Semantic Search extension is activating...');
 
     try {
         // Get storage path for databases
         const storagePath = getStoragePath(context);
-        console.log(`Storage path: ${storagePath}`);
+        logger.debug('Extension', `Storage path: ${storagePath}`);
 
         // Initialize status bar manager
         statusBarManager = new StatusBarManager();
@@ -78,7 +80,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Update status to ready
         statusBarManager.updateModelStatus('ready');
-        console.log('Services initialized successfully');
+        logger.info('Extension', 'Services initialized successfully');
 
         // Get indexing configuration from settings
         const indexingConfig = getIndexingConfigFromSettings();
@@ -160,9 +162,9 @@ export async function activate(context: vscode.ExtensionContext) {
         // Show activation message
         vscode.window.showInformationMessage('Semantic Search is ready!');
 
-        console.log('Semantic Search extension activated successfully');
+        logger.info('Extension', 'Semantic Search extension activated successfully');
     } catch (error) {
-        console.error('Failed to activate Semantic Search extension:', error);
+        logger.error('Extension', 'Failed to activate Semantic Search extension', error);
         statusBarManager?.updateModelStatus('error');
         vscode.window.showErrorMessage(
             `Failed to activate Semantic Search: ${error instanceof Error ? error.message : String(error)}`
@@ -174,7 +176,8 @@ export async function activate(context: vscode.ExtensionContext) {
  * Deactivate the extension
  */
 export async function deactivate() {
-    console.log('Deactivating Semantic Search extension...');
+    const logger = getLogger();
+    logger.info('Extension', 'Deactivating Semantic Search extension...');
 
     try {
         // Dispose file watcher
@@ -197,8 +200,11 @@ export async function deactivate() {
             statusBarManager.dispose();
         }
 
-        console.log('Semantic Search extension deactivated');
+        logger.info('Extension', 'Semantic Search extension deactivated');
     } catch (error) {
-        console.error('Error during deactivation:', error);
+        logger.error('Extension', 'Error during deactivation', error);
     }
+
+    // Dispose logger last
+    getLogger().dispose();
 }

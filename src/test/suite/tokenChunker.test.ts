@@ -1,6 +1,6 @@
 import { strict as assert } from 'assert';
-import { splitIntoTokenChunks } from '../utils/tokenChunker';
-import { DEFAULT_INDEXING_CONFIG } from '../models/types';
+import { splitIntoTokenChunks } from '../../utils/tokenChunker';
+import { DEFAULT_INDEXING_CONFIG } from '../../models/types';
 
 suite('tokenChunker', () => {
     test('returns single chunk for small content', () => {
@@ -27,12 +27,12 @@ suite('tokenChunker', () => {
 
     test('falls back gracefully when js-tiktoken is unavailable', () => {
         const originalRequire = require('module').prototype.require;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         (require('module').prototype as any).require = function (id: string) {
             if (id === 'js-tiktoken') {
                 throw new Error('Simulated missing module');
             }
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             
             return (originalRequire as any).apply(this, arguments as any);
         };
 

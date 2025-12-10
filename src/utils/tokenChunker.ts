@@ -1,7 +1,8 @@
 import { DEFAULT_INDEXING_CONFIG, IndexingConfig } from '../models/types';
 import { splitIntoChunks } from './fileUtils';
+import { getLogger } from '../services/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 let encoding: any | null = null;
 
 function getEncodingOrNull() {
@@ -12,12 +13,12 @@ function getEncodingOrNull() {
     try {
         // js-tiktoken provides get_encoding to construct a tokenizer
         // We use cl100k_base which is a good general-purpose BPE
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
+         
         const { get_encoding } = require('js-tiktoken');
         encoding = get_encoding('cl100k_base');
         return encoding;
     } catch (error) {
-        console.warn('js-tiktoken not available, falling back to line-based chunking:', error);
+        getLogger().warn('TokenChunker', 'js-tiktoken not available, falling back to line-based chunking', error);
         encoding = null;
         return null;
     }

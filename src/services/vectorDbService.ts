@@ -8,7 +8,7 @@ import * as fs from 'fs';
 import { EmbeddingService } from './embeddingService';
 import { IndexedFile, SearchResult } from '../models/types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 let DuckDBInstance: any;
 
 interface CodeChunk {
@@ -23,9 +23,9 @@ interface CodeChunk {
 }
 
 export class VectorDbService {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     private instance: any = null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     private connection: any = null;
     private storagePath: string;
     private dbPath: string;
@@ -165,7 +165,7 @@ export class VectorDbService {
     /**
      * Query and return results
      */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     private async querySQL<T>(sql: string, ...params: unknown[]): Promise<T[]> {
         if (!this.connection) {
             throw new Error('Database not initialized');
@@ -190,7 +190,7 @@ export class VectorDbService {
     /**
      * Convert DuckDB rows to objects
      */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     private convertRows<T>(rows: any[], result: any): T[] {
         if (!rows || rows.length === 0) {
             return [];
@@ -198,7 +198,7 @@ export class VectorDbService {
 
         const columnNames = result.columnNames();
         return rows.map(row => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             
             const obj: any = {};
             for (let i = 0; i < columnNames.length; i++) {
                 obj[columnNames[i]] = row[i];
@@ -290,9 +290,9 @@ export class VectorDbService {
         const rows = await result.getRows();
         const columnNames = result.columnNames();
         
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         return rows.map((row: any[]) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             
             const obj: any = {};
             columnNames.forEach((col: string, i: number) => {
                 obj[col] = row[i];

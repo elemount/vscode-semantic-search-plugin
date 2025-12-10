@@ -4,6 +4,7 @@
 
 import * as vscode from 'vscode';
 import { VectorDbService } from './vectorDbService';
+import { getLogger } from './logger';
 import {
     IndexedFile,
     IndexingConfig,
@@ -97,7 +98,7 @@ export class IndexingService {
                 try {
                     await this.indexFile(file, workspacePath);
                 } catch (error) {
-                    console.error(`Error indexing file ${file.fsPath}:`, error);
+                    getLogger().error('IndexingService', `Error indexing file ${file.fsPath}`, error);
                     // Continue with other files
                 }
 
@@ -195,7 +196,7 @@ export class IndexingService {
                 try {
                     await this.indexFile(fileUri, workspacePath);
                 } catch (error) {
-                    console.error(`Error indexing file ${fileUri.fsPath}:`, error);
+                    getLogger().error('IndexingService', `Error indexing file ${fileUri.fsPath}`, error);
                 }
 
                 this.updateStatus({ processedFiles: i + 1 });

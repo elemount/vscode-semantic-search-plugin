@@ -2,7 +2,7 @@
   "name": "semantic-search",
   "displayName": "Semantic Search",
   "description": "Provide local semantic search for VsCode to make LLM happy",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "engines": {
     "vscode": "^1.106.1"
   },
@@ -239,6 +239,17 @@
           },
           "default": [],
           "description": "Additional glob patterns to include in indexing"
+        },
+        "semanticSearch.logging.level": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug"
+          ],
+          "default": "warn",
+          "description": "Logging level for the Semantic Search extension"
         }
       }
     },
@@ -289,16 +300,19 @@
     "@duckdb/node-api": "^1.4.2-r.1",
     "@duckdb/node-bindings": "^1.4.2-r.1",
     "@huggingface/transformers": "^3.0.0",
-    "minimatch": "^10.0.1",
-    "js-tiktoken": "^1.0.14"
+    "js-tiktoken": "^1.0.14",
+    "minimatch": "^10.0.1"
   },
   "devDependencies": {
+    "@types/glob": "^8.1.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
     "@types/vscode": "^1.106.1",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.39.1",
+    "glob": "^13.0.0",
+    "mocha": "^11.7.5",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.48.1"
   }

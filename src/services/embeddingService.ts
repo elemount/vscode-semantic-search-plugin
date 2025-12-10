@@ -6,7 +6,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type Pipeline = any;
 
 export interface EmbeddingProgress {

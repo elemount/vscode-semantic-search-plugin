@@ -4,6 +4,34 @@ All notable changes to the "semantic-search" extension will be documented in thi
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.0.6] - 2024-12-10
+
+### Added
+- **Logging System**: Centralized logging service with configurable log levels
+  - New `semanticSearch.logging.level` setting (error, warn, info, debug)
+  - Logs to "Semantic Search" output channel
+  - Automatic sanitization of sensitive data (API keys, tokens)
+  - Dynamic log level updates without restart
+- **VS Code Test Integration**: Official test runner setup
+  - New test suite structure with `runTest.ts`
+  - Extended test coverage for extension activation, commands, and configuration
+  - Logger service tests
+  - Token chunker tests
+- **GitHub Actions CI**: Automated testing and linting
+  - Multi-platform testing (Ubuntu, Windows, macOS)
+  - Runs on push and pull requests to main branch
+  - CI status badge in README.md
+
+### Changed
+- Replaced all `console.log`/`console.error` calls with structured logging
+- Moved test files to `src/test/suite/` directory
+- Improved extension activation tests with better assertions
+
+### Developer Experience
+- Consistent log formatting with timestamps and component context
+- Better error visibility and debugging capabilities
+- Automated CI pipeline for quality assurance
+
 ## [0.0.3] - 2024-12-10
 
 ### Changed
