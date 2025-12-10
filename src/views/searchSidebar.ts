@@ -11,6 +11,8 @@ import { SearchResultsPanel } from './searchResultsPanel';
 import { getLogger } from '../services/logger';
 import { minimatch } from 'minimatch';
 import { loadTemplate, loadCss } from '../utils/templateLoader';
+import { EmbeddingService } from '../services/embeddingService';
+import { StatusBarManager } from '../services/statusBarManager';
 
 export class SearchSidebarProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'semanticSearchSidebar';
@@ -18,14 +20,23 @@ export class SearchSidebarProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _extensionUri: vscode.Uri;
     private _searchService: SearchService;
+    private _embeddingService?: EmbeddingService;
+    private _statusBarManager?: StatusBarManager;
     private _lastResults: SearchResult[] = [];
     private _lastQuery: string = '';
     private _lastIncludePattern: string = '';
     private _lastExcludePattern: string = '';
 
-    constructor(extensionUri: vscode.Uri, searchService: SearchService) {
+    constructor(
+        extensionUri: vscode.Uri,
+        searchService: SearchService,
+        embeddingService?: EmbeddingService,
+        statusBarManager?: StatusBarManager
+    ) {
         this._extensionUri = extensionUri;
         this._searchService = searchService;
+        this._embeddingService = embeddingService;
+        this._statusBarManager = statusBarManager;
     }
 
     public async resolveWebviewView(
@@ -125,6 +136,37 @@ export class SearchSidebarProvider implements vscode.WebviewViewProvider {
         }
 
         try {
+            // Ensure embedding model is loaded
+            if (this._embeddingService && this._statusBarManager) {
+                const state = this._embeddingService.getState();
+                if (state === 'not-loaded') {
+                    await vscode.window.withProgress(
+                        {
+                            location: vscode.ProgressLocation.Notification,
+                            title: 'Semantic Search',
+                            cancellable: false,
+                        },
+                        async (progress) => {
+                            progress.report({ message: 'Loading embedding model...' });
+                            this._statusBarManager!.updateModelStatus('loading');
+                            
+                            await this._embeddingService!.ensureInitialized((p) => {
+                                if (p.status === 'progress' && p.total) {
+                                    const percent = Math.round((p.loaded || 0) / p.total * 100);
+                                    progress.report({ 
+                                        message: `Loading model: ${percent}%`,
+                                        increment: 0
+                                    });
+                                    this._statusBarManager!.updateModelStatus('loading', percent);
+                                }
+                            });
+                            
+                            this._statusBarManager!.updateModelStatus('ready');
+                        }
+                    );
+                }
+            }
+            
             const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             const maxResults = vscode.workspace.getConfiguration('semanticSearch').get<number>('maxResults', 10);
 
@@ -243,9 +285,16 @@ export class SearchSidebarProvider implements vscode.WebviewViewProvider {
  */
 export function registerSearchSidebarView(
     context: vscode.ExtensionContext,
-    searchService: SearchService
+    searchService: SearchService,
+    embeddingService?: EmbeddingService,
+    statusBarManager?: StatusBarManager
 ): { provider: SearchSidebarProvider; disposable: vscode.Disposable } {
-    const provider = new SearchSidebarProvider(context.extensionUri, searchService);
+    const provider = new SearchSidebarProvider(
+        context.extensionUri,
+        searchService,
+        embeddingService,
+        statusBarManager
+    );
 
     const disposable = vscode.window.registerWebviewViewProvider(
         SearchSidebarProvider.viewType,

@@ -6,12 +6,47 @@ import * as vscode from 'vscode';
 import { SearchService } from '../services/searchService';
 import { SearchResultsPanel } from '../views/searchResultsPanel';
 import { normalizePath } from '../utils/fileUtils';
+import { EmbeddingService } from '../services/embeddingService';
+import { StatusBarManager } from '../services/statusBarManager';
 
 export function registerSearchCommand(
     context: vscode.ExtensionContext,
-    searchService: SearchService
+    searchService: SearchService,
+    embeddingService?: EmbeddingService,
+    statusBarManager?: StatusBarManager
 ): vscode.Disposable {
     return vscode.commands.registerCommand('semantic-search.search', async () => {
+        // Ensure embedding model is loaded
+        if (embeddingService && statusBarManager) {
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: 'Semantic Search',
+                    cancellable: false,
+                },
+                async (progress) => {
+                    const state = embeddingService.getState();
+                    if (state === 'not-loaded') {
+                        progress.report({ message: 'Loading embedding model...' });
+                        statusBarManager.updateModelStatus('loading');
+                        
+                        await embeddingService.ensureInitialized((p) => {
+                            if (p.status === 'progress' && p.total) {
+                                const percent = Math.round((p.loaded || 0) / p.total * 100);
+                                progress.report({ 
+                                    message: `Loading model: ${percent}%`,
+                                    increment: 0
+                                });
+                                statusBarManager.updateModelStatus('loading', percent);
+                            }
+                        });
+                        
+                        statusBarManager.updateModelStatus('ready');
+                    }
+                }
+            );
+        }
+        
         // Get query from user
         const query = await vscode.window.showInputBox({
             prompt: 'Enter your search query',
@@ -116,9 +151,42 @@ export function registerSearchCommand(
  */
 export function registerSearchWithPanelCommand(
     context: vscode.ExtensionContext,
-    searchService: SearchService
+    searchService: SearchService,
+    embeddingService?: EmbeddingService,
+    statusBarManager?: StatusBarManager
 ): vscode.Disposable {
     return vscode.commands.registerCommand('semantic-search.searchWithPanel', async () => {
+        // Ensure embedding model is loaded
+        if (embeddingService && statusBarManager) {
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: 'Semantic Search',
+                    cancellable: false,
+                },
+                async (progress) => {
+                    const state = embeddingService.getState();
+                    if (state === 'not-loaded') {
+                        progress.report({ message: 'Loading embedding model...' });
+                        statusBarManager.updateModelStatus('loading');
+                        
+                        await embeddingService.ensureInitialized((p) => {
+                            if (p.status === 'progress' && p.total) {
+                                const percent = Math.round((p.loaded || 0) / p.total * 100);
+                                progress.report({ 
+                                    message: `Loading model: ${percent}%`,
+                                    increment: 0
+                                });
+                                statusBarManager.updateModelStatus('loading', percent);
+                            }
+                        });
+                        
+                        statusBarManager.updateModelStatus('ready');
+                    }
+                }
+            );
+        }
+        
         // Get query from user
         const query = await vscode.window.showInputBox({
             prompt: 'Enter your search query',
@@ -197,9 +265,42 @@ export function registerSearchWithPanelCommand(
  */
 export function registerQuickSearchCommand(
     context: vscode.ExtensionContext,
-    searchService: SearchService
+    searchService: SearchService,
+    embeddingService?: EmbeddingService,
+    statusBarManager?: StatusBarManager
 ): vscode.Disposable {
     return vscode.commands.registerCommand('semantic-search.quickSearch', async () => {
+        // Ensure embedding model is loaded
+        if (embeddingService && statusBarManager) {
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: 'Semantic Search',
+                    cancellable: false,
+                },
+                async (progress) => {
+                    const state = embeddingService.getState();
+                    if (state === 'not-loaded') {
+                        progress.report({ message: 'Loading embedding model...' });
+                        statusBarManager.updateModelStatus('loading');
+                        
+                        await embeddingService.ensureInitialized((p) => {
+                            if (p.status === 'progress' && p.total) {
+                                const percent = Math.round((p.loaded || 0) / p.total * 100);
+                                progress.report({ 
+                                    message: `Loading model: ${percent}%`,
+                                    increment: 0
+                                });
+                                statusBarManager.updateModelStatus('loading', percent);
+                            }
+                        });
+                        
+                        statusBarManager.updateModelStatus('ready');
+                    }
+                }
+            );
+        }
+        
         const query = await vscode.window.showInputBox({
             prompt: 'Enter your search query (will open top result)',
             placeHolder: 'e.g., main entry point',

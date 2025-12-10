@@ -16,29 +16,53 @@ export interface EmbeddingProgress {
     total?: number;
 }
 
+export type EmbeddingServiceState = 'not-loaded' | 'loading' | 'ready' | 'error';
+
 export class EmbeddingService {
     private extractor: Pipeline | null = null;
     private modelId = 'onnx-community/embeddinggemma-300m-ONNX';
     private dimensions = 768;
     private initPromise: Promise<void> | null = null;
+    private state: EmbeddingServiceState = 'not-loaded';
     
     constructor(private context: vscode.ExtensionContext) {}
     
     /**
-     * Initialize the embedding model using pipeline
+     * Ensure the model is initialized, loading it if needed
+     * This is the main entry point for lazy loading
      */
-    async initialize(
+    async ensureInitialized(
         onProgress?: (progress: EmbeddingProgress) => void
     ): Promise<void> {
-        if (this.extractor) {
+        if (this.state === 'ready') {
             return;
+        }
+        if (this.state === 'error') {
+            throw new Error('Embedding service failed to initialize. Please reload the window.');
         }
         if (this.initPromise) {
             return this.initPromise;
         }
         
+        this.state = 'loading';
         this.initPromise = this.loadModel(onProgress);
-        await this.initPromise;
+        
+        try {
+            await this.initPromise;
+            this.state = 'ready';
+        } catch (error) {
+            this.state = 'error';
+            throw error;
+        }
+    }
+    
+    /**
+     * Initialize the embedding model using pipeline (deprecated - use ensureInitialized)
+     */
+    async initialize(
+        onProgress?: (progress: EmbeddingProgress) => void
+    ): Promise<void> {
+        return this.ensureInitialized(onProgress);
     }
     
     private async loadModel(
@@ -132,5 +156,12 @@ export class EmbeddingService {
      */
     isInitialized(): boolean {
         return this.extractor !== null;
+    }
+    
+    /**
+     * Get current initialization state
+     */
+    getState(): EmbeddingServiceState {
+        return this.state;
     }
 }

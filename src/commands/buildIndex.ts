@@ -5,12 +5,46 @@
 import * as vscode from 'vscode';
 import { IndexingService } from '../services/indexingService';
 import { normalizePath } from '../utils/fileUtils';
+import { EmbeddingService } from '../services/embeddingService';
+import { StatusBarManager } from '../services/statusBarManager';
 
 export function registerBuildIndexCommand(
     context: vscode.ExtensionContext,
-    indexingService: IndexingService
+    indexingService: IndexingService,
+    embeddingService?: EmbeddingService,
+    statusBarManager?: StatusBarManager
 ): vscode.Disposable {
     return vscode.commands.registerCommand('semantic-search.buildIndex', async () => {
+        // Ensure embedding model is loaded
+        if (embeddingService && statusBarManager) {
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: 'Semantic Search',
+                    cancellable: false,
+                },
+                async (progress) => {
+                    const state = embeddingService.getState();
+                    if (state === 'not-loaded') {
+                        progress.report({ message: 'Loading embedding model...' });
+                        statusBarManager.updateModelStatus('loading');
+                        
+                        await embeddingService.ensureInitialized((p) => {
+                            if (p.status === 'progress' && p.total) {
+                                const percent = Math.round((p.loaded || 0) / p.total * 100);
+                                progress.report({ 
+                                    message: `Loading model: ${percent}%`,
+                                    increment: 0
+                                });
+                                statusBarManager.updateModelStatus('loading', percent);
+                            }
+                        });
+                        
+                        statusBarManager.updateModelStatus('ready');
+                    }
+                }
+            );
+        }
         // Get workspace folders
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -69,11 +103,43 @@ export function registerBuildIndexCommand(
  */
 export function registerIndexFilesCommand(
     context: vscode.ExtensionContext,
-    indexingService: IndexingService
+    indexingService: IndexingService,
+    embeddingService?: EmbeddingService,
+    statusBarManager?: StatusBarManager
 ): vscode.Disposable {
     return vscode.commands.registerCommand(
         'semantic-search.indexFiles',
         async (uri?: vscode.Uri, uris?: vscode.Uri[]) => {
+            // Ensure embedding model is loaded
+            if (embeddingService && statusBarManager) {
+                await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: 'Semantic Search',
+                        cancellable: false,
+                    },
+                    async (progress) => {
+                        const state = embeddingService.getState();
+                        if (state === 'not-loaded') {
+                            progress.report({ message: 'Loading embedding model...' });
+                            statusBarManager.updateModelStatus('loading');
+                            
+                            await embeddingService.ensureInitialized((p) => {
+                                if (p.status === 'progress' && p.total) {
+                                    const percent = Math.round((p.loaded || 0) / p.total * 100);
+                                    progress.report({ 
+                                        message: `Loading model: ${percent}%`,
+                                        increment: 0
+                                    });
+                                    statusBarManager.updateModelStatus('loading', percent);
+                                }
+                            });
+                            
+                            statusBarManager.updateModelStatus('ready');
+                        }
+                    }
+                );
+            }
             // Get files to index
             let filesToIndex: vscode.Uri[] = [];
 

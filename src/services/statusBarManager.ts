@@ -6,11 +6,12 @@
 import * as vscode from 'vscode';
 import { IndexingStatus } from '../models/types';
 
-export type ModelStatus = 'loading' | 'ready' | 'error';
+export type ModelStatus = 'not-loaded' | 'loading' | 'ready' | 'error';
 
 export class StatusBarManager {
     private modelStatusItem: vscode.StatusBarItem;
     private indexingStatusItem: vscode.StatusBarItem;
+    private loadingProgress: number = 0;
 
     constructor() {
         // Create model status item
@@ -19,7 +20,7 @@ export class StatusBarManager {
             100
         );
         this.modelStatusItem.name = 'Semantic Search Model';
-        this.updateModelStatus('loading');
+        this.updateModelStatus('not-loaded');
         this.modelStatusItem.show();
 
         // Create indexing status item
@@ -34,15 +35,22 @@ export class StatusBarManager {
     /**
      * Update embedding model status display
      */
-    updateModelStatus(status: ModelStatus): void {
+    updateModelStatus(status: ModelStatus, progress?: number): void {
         switch (status) {
+            case 'not-loaded':
+                this.modelStatusItem.text = '$(database) Ready';
+                this.modelStatusItem.tooltip = 'Semantic Search ready (Model: On-demand)';
+                this.modelStatusItem.backgroundColor = undefined;
+                break;
             case 'loading':
-                this.modelStatusItem.text = '$(sync~spin) Semantic Search';
-                this.modelStatusItem.tooltip = 'Loading embedding model...';
+                this.loadingProgress = progress || 0;
+                const progressText = progress ? ` ${Math.round(progress)}%` : '';
+                this.modelStatusItem.text = `$(sync~spin) Loading${progressText}`;
+                this.modelStatusItem.tooltip = `Loading embedding model...${progressText}`;
                 this.modelStatusItem.backgroundColor = undefined;
                 break;
             case 'ready':
-                this.modelStatusItem.text = '$(check) Semantic Search';
+                this.modelStatusItem.text = '$(check) Search Ready';
                 this.modelStatusItem.tooltip = 'Semantic Search is ready';
                 this.modelStatusItem.backgroundColor = undefined;
                 break;

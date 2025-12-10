@@ -2,7 +2,7 @@
   "name": "semantic-search",
   "displayName": "Semantic Search",
   "description": "Provide local semantic search for VsCode to make LLM happy",
-  "version": "0.0.6",
+  "version": "0.0.8",
   "engines": {
     "vscode": "^1.106.1"
   },

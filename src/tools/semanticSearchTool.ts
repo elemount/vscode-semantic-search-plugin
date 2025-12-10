@@ -5,6 +5,8 @@
 import * as vscode from 'vscode';
 import { SearchService } from '../services/searchService';
 import { normalizePath } from '../utils/fileUtils';
+import { EmbeddingService } from '../services/embeddingService';
+import { StatusBarManager } from '../services/statusBarManager';
 
 /**
  * Tool input interface
@@ -19,7 +21,9 @@ interface SemanticSearchToolInput {
  */
 export function registerSemanticSearchTool(
     context: vscode.ExtensionContext,
-    searchService: SearchService
+    searchService: SearchService,
+    embeddingService?: EmbeddingService,
+    statusBarManager?: StatusBarManager
 ): void {
     // Register the language model tool
     const tool = vscode.lm.registerTool('semantic-search_ask', {
@@ -28,6 +32,21 @@ export function registerSemanticSearchTool(
             token: vscode.CancellationToken
         ): Promise<vscode.LanguageModelToolResult> {
             const { query, maxResults = 10 } = options.input;
+
+            // Ensure embedding model is loaded (silent loading for tool)
+            if (embeddingService && statusBarManager) {
+                const state = embeddingService.getState();
+                if (state === 'not-loaded') {
+                    statusBarManager.updateModelStatus('loading');
+                    await embeddingService.ensureInitialized((p) => {
+                        if (p.status === 'progress' && p.total) {
+                            const percent = Math.round((p.loaded || 0) / p.total * 100);
+                            statusBarManager.updateModelStatus('loading', percent);
+                        }
+                    });
+                    statusBarManager.updateModelStatus('ready');
+                }
+            }
 
             // Get workspace path
             const workspaceFolders = vscode.workspace.workspaceFolders;

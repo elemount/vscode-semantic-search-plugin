@@ -45,42 +45,16 @@ export async function activate(context: vscode.ExtensionContext) {
         statusBarManager = new StatusBarManager();
         context.subscriptions.push({ dispose: () => statusBarManager.dispose() });
 
-        // Show loading status
-        statusBarManager.updateModelStatus('loading');
-
-        // Initialize embedding service with progress
+        // Initialize embedding service (but don't load model yet)
         embeddingService = new EmbeddingService(context);
         
-        await vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: 'Semantic Search',
-                cancellable: false,
-            },
-            async (progress) => {
-                progress.report({ message: 'Loading embedding model...' });
-                
-                await embeddingService.initialize((p) => {
-                    if (p.status === 'progress' && p.total) {
-                        const percent = Math.round((p.loaded || 0) / p.total * 100);
-                        progress.report({ 
-                            message: `Downloading model: ${percent}%`,
-                            increment: 0
-                        });
-                    }
-                });
-                
-                progress.report({ message: 'Initializing database...' });
-                
-                // Initialize vector database service
-                vectorDbService = new VectorDbService(storagePath, embeddingService);
-                await vectorDbService.initialize();
-            }
-        );
+        // Initialize vector database service (fast, no model required)
+        vectorDbService = new VectorDbService(storagePath, embeddingService);
+        await vectorDbService.initialize();
 
-        // Update status to ready
-        statusBarManager.updateModelStatus('ready');
-        logger.info('Extension', 'Services initialized successfully');
+        // Update status to ready (model not loaded yet)
+        statusBarManager.updateModelStatus('not-loaded');
+        logger.info('Extension', 'Services initialized successfully (model on-demand)');
 
         // Get indexing configuration from settings
         const indexingConfig = getIndexingConfigFromSettings();
@@ -100,13 +74,13 @@ export async function activate(context: vscode.ExtensionContext) {
         fileWatcherService.start();
         context.subscriptions.push({ dispose: () => fileWatcherService.dispose() });
 
-        // Register commands
+        // Register commands (pass embedding service and status bar for lazy loading)
         context.subscriptions.push(
-            registerBuildIndexCommand(context, indexingService),
-            registerIndexFilesCommand(context, indexingService),
-            registerSearchCommand(context, searchService),
-            registerSearchWithPanelCommand(context, searchService),
-            registerQuickSearchCommand(context, searchService),
+            registerBuildIndexCommand(context, indexingService, embeddingService, statusBarManager),
+            registerIndexFilesCommand(context, indexingService, embeddingService, statusBarManager),
+            registerSearchCommand(context, searchService, embeddingService, statusBarManager),
+            registerSearchWithPanelCommand(context, searchService, embeddingService, statusBarManager),
+            registerQuickSearchCommand(context, searchService, embeddingService, statusBarManager),
             registerDeleteIndexCommand(context, indexingService),
             registerDeleteFileIndexCommand(context, indexingService)
         );
@@ -117,7 +91,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Register search sidebar webview provider
         const { provider: searchSidebarProvider, disposable: searchSidebarDisposable } = 
-            registerSearchSidebarView(context, searchService);
+            registerSearchSidebarView(context, searchService, embeddingService, statusBarManager);
         context.subscriptions.push(searchSidebarDisposable);
 
         // Register search sidebar commands
@@ -141,7 +115,7 @@ export async function activate(context: vscode.ExtensionContext) {
         );
 
         // Register Language Model Tool for Copilot integration
-        registerSemanticSearchTool(context, searchService);
+        registerSemanticSearchTool(context, searchService, embeddingService, statusBarManager);
 
         // Listen for configuration changes
         context.subscriptions.push(
@@ -160,8 +134,6 @@ export async function activate(context: vscode.ExtensionContext) {
         );
 
         // Show activation message
-        vscode.window.showInformationMessage('Semantic Search is ready!');
-
         logger.info('Extension', 'Semantic Search extension activated successfully');
     } catch (error) {
         logger.error('Extension', 'Failed to activate Semantic Search extension', error);

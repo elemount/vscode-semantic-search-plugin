@@ -4,6 +4,32 @@ All notable changes to the "semantic-search" extension will be documented in thi
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.0.8] - 2024-12-10
+
+### Changed
+- **Instant Activation**: Extension now activates in <500ms by deferring model loading
+  - Embedding model loads on-demand (first search or index operation)
+  - Database initialization only during activation (fast)
+  - All commands and views available immediately
+  - Non-blocking model download with progress in status bar
+
+### Added
+- **Lazy Loading State Management**: New `EmbeddingServiceState` type
+  - States: `'not-loaded' | 'loading' | 'ready' | 'error'`
+  - `ensureInitialized()` method for on-demand model loading
+  - `getState()` method to check initialization status
+- **Enhanced Status Bar**: Displays model loading progress
+  - Initial: `"$(database) Ready"` with "Model: On-demand" tooltip
+  - Loading: `"$(sync~spin) Loading 45%"` with real-time progress
+  - Ready: `"$(check) Search Ready"`
+- **Silent Copilot Integration**: Tool automatically loads model when needed
+
+### Developer Experience
+- Faster development iteration (no waiting for model on every reload)
+- Users browsing index never trigger model download
+- Database operations (view, delete) work without model
+- Better first-time user experience
+
 ## [0.0.6] - 2024-12-10
 
 ### Added
