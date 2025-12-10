@@ -4,7 +4,7 @@ This document describes the database schema used by the Semantic Search VS Code 
 
 ## Schema Version
 
-Current schema version: **2**
+Current schema version: **1**
 
 ## Overview
 
@@ -12,7 +12,8 @@ The database uses DuckDB with the VSS (Vector Similarity Search) extension to pr
 
 ```
 workspaces
-    └── indexed_files
+    └── folders
+        └── indexed_files
             └── code_chunks (with embeddings)
 ```
 
@@ -25,10 +26,8 @@ Tracks applied schema migrations for version control.
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `version` | INTEGER | PRIMARY KEY | Migration version number |
-| `applied_at` | BIGINT | NOT NULL | Unix timestamp when migration was applied |
-| `description` | VARCHAR | | Human-readable description of the migration |
 
-### `workspaces`
+### `workspaces_v1`
 
 Top-level workspace tracking. Each VS Code workspace folder gets an entry.
 
@@ -39,14 +38,27 @@ Top-level workspace tracking. Each VS Code workspace folder gets an entry.
 | `workspace_name` | VARCHAR | | | Display name (folder name) |
 | `status` | VARCHAR | | 'active' | Status: 'active', 'indexing', 'error' |
 | `created_at` | BIGINT | NOT NULL | | Unix timestamp when workspace was added |
-| `last_updated_at` | BIGINT | NOT NULL | | Unix timestamp of last index update |
-| `total_files` | INTEGER | | 0 | Count of indexed files in workspace |
-| `total_chunks` | INTEGER | | 0 | Count of code chunks in workspace |
+
 
 **Indexes:**
 - `idx_workspace_unique_path` - UNIQUE index on `workspace_path`
 
-### `indexed_files`
+### `folders_v1`
+| Column | Type | Constraints | Default | Description |
+|--------|------|-------------|---------|-------------|
+| `folder_id` | VARCHAR | PRIMARY KEY | | UUID (MD5 hash of workspace + folder path) |
+| `workspace_id` | VARCHAR | NOT NULL | | Reference to workspaces table |
+| `parent_folder_id` | VARCHAR | | | Reference to parent folder (nullable, if it is the root folder of the workspace) |
+| `folder_path` | VARCHAR | NOT NULL | | Full relative folder path, e.g., 'src/components' |
+| `folder_name` | VARCHAR | | | Just the folder name, e.g., 'components' |
+| `created_at` | BIGINT | NOT NULL | | Unix timestamp when folder was first indexed |
+
+**Indexes:**
+- `idx_folder_workspace` - Index on `workspace_id`
+- `idx_folder_unique_path` - UNIQUE index on `(workspace_id, folder_path)`
+- `idx_folder_parent` - Index on `parent_folder_id`
+
+### `indexed_files_v1`
 
 File metadata with derived folder structure for tree view.
 
@@ -54,59 +66,62 @@ File metadata with derived folder structure for tree view.
 |--------|------|-------------|---------|-------------|
 | `file_id` | VARCHAR | PRIMARY KEY | | UUID (MD5 hash of workspace + file path) |
 | `workspace_id` | VARCHAR | | | Reference to workspaces table |
+| `folder_id` | VARCHAR | | | Reference to folders table |
 | `file_path` | VARCHAR | NOT NULL | | Full relative path, e.g., 'src/components/Button.tsx' |
-| `folder_path` | VARCHAR | | | Derived folder path, e.g., 'src/components' |
 | `file_name` | VARCHAR | | | Just the filename, e.g., 'Button.tsx' |
-| `workspace_path` | VARCHAR | NOT NULL | | Absolute workspace path (for backward compat) |
-| `md5_hash` | VARCHAR | NOT NULL | | MD5 hash of file content for change detection |
-| `language` | VARCHAR | | | Programming language (e.g., 'typescript') |
+| `absolute_path` | VARCHAR | NOT NULL | | Absolute file path |
 | `file_size` | BIGINT | | | File size in bytes |
-| `line_count` | INTEGER | | | Number of lines in file |
-| `chunk_count` | INTEGER | | 0 | Number of code chunks for this file |
-| `created_at` | BIGINT | | | Unix timestamp when file was first indexed |
 | `last_indexed_at` | BIGINT | NOT NULL | | Unix timestamp of last indexing |
+| `md5_hash` | VARCHAR | NOT NULL | | MD5 hash of file content for change detection |
 
 **Indexes:**
 - `idx_workspace_path` - Index on `workspace_path`
-- `idx_file_path` - Index on `file_path`
 - `idx_file_workspace_id` - Index on `workspace_id`
-- `idx_file_folder` - Composite index on `(workspace_id, folder_path)`
+- `idx_file_folder_id` - Index on `folder_id`
 - `idx_file_unique_path` - UNIQUE index on `(workspace_id, file_path)`
 
-### `code_chunks`
+### `file_chunks_small_v1`
 
 Vector embeddings and content for code segments.
 
 | Column | Type | Constraints | Default | Description |
 |--------|------|-------------|---------|-------------|
-| `chunk_id` | VARCHAR | PRIMARY KEY | | UUID (derived from file_id + line range) |
+| `chunk_id` | VARCHAR | PRIMARY KEY | | UUID (derived from file_id + line range(line:pos-line:pos)) |
 | `file_id` | VARCHAR | NOT NULL | | Reference to indexed_files table |
 | `file_path` | VARCHAR | NOT NULL | | File path (denormalized for query efficiency) |
+| `workspace_id` | VARCHAR | NOT NULL | | Reference to workspaces table |
 | `workspace_path` | VARCHAR | NOT NULL | | Workspace path (denormalized) |
 | `content` | TEXT | NOT NULL | | The actual code content |
 | `line_start` | INTEGER | NOT NULL | | Starting line number (1-indexed) |
+| `line_pos_start` | INTEGER | NOT NULL | | Starting line position (1-indexed) |
 | `line_end` | INTEGER | NOT NULL | | Ending line number (1-indexed) |
+| `line_pos_end` | INTEGER | NOT NULL | | Ending line position (1-indexed) |
 | `chunk_index` | INTEGER | | 0 | Order of chunk within file |
-| `token_start` | INTEGER | | | Starting token position |
-| `token_end` | INTEGER | | | Ending token position |
-| `language` | VARCHAR | | | Programming language |
 | `embedding` | FLOAT[768] | | | Vector embedding (dimension depends on model) |
 | `created_at` | BIGINT | NOT NULL | | Unix timestamp when chunk was created |
 
 **Indexes:**
 - `idx_chunks_file` - Index on `file_id`
-- `idx_chunks_workspace` - Index on `workspace_path`
+- `idx_chunks_workspace` - Index on `workspace_id`
 - `idx_chunks_embedding` - HNSW index on `embedding` (cosine metric)
 
 ## Relationships
 
 ```
-workspaces (1) ────────────────────────── (N) indexed_files
-              workspace_path = workspace_path
+workspaces_v1 (1) ─────────────────────── (N) folders_v1
                    workspace_id
 
-indexed_files (1) ─────────────────────── (N) code_chunks
-                  file_id = file_id
+folders_v1 (1) ────────────────────────── (N) folders_v1 (self-referential)
+               parent_folder_id = folder_id
+
+folders_v1 (1) ────────────────────────── (N) indexed_files_v1
+               folder_id
+
+workspaces_v1 (1) ─────────────────────── (N) indexed_files_v1
+                   workspace_id
+
+indexed_files_v1 (1) ──────────────────── (N) file_chunks_small_v1
+                     file_id
 ```
 
 ## Common Queries
@@ -115,21 +130,22 @@ indexed_files (1) ────────────────────�
 
 ```sql
 SELECT 
-    folder_path,
-    COUNT(*) as file_count,
-    SUM(chunk_count) as total_chunks
-FROM indexed_files
-WHERE workspace_path = ?
-GROUP BY folder_path
-ORDER BY folder_path;
+    f.folder_path,
+    f.folder_name,
+    COUNT(if2.file_id) as file_count
+FROM folders_v1 f
+LEFT JOIN indexed_files_v1 if2 ON f.folder_id = if2.folder_id
+WHERE f.workspace_id = ?
+GROUP BY f.folder_id, f.folder_path, f.folder_name
+ORDER BY f.folder_path;
 ```
 
 ### Get files in a specific folder
 
 ```sql
-SELECT file_id, file_name, chunk_count, last_indexed_at
-FROM indexed_files
-WHERE workspace_path = ? AND folder_path = ?
+SELECT file_id, file_name, last_indexed_at
+FROM indexed_files_v1
+WHERE workspace_id = ? AND folder_id = ?
 ORDER BY file_name;
 ```
 
@@ -141,9 +157,11 @@ SELECT
     file_path,
     content,
     line_start,
+    line_pos_start,
     line_end,
+    line_pos_end,
     array_cosine_distance(embedding, ?::FLOAT[768]) AS distance
-FROM code_chunks
+FROM file_chunks_small_v1
 WHERE workspace_path = ?
 ORDER BY array_cosine_distance(embedding, ?::FLOAT[768])
 LIMIT 10;
@@ -154,41 +172,46 @@ LIMIT 10;
 ```sql
 SELECT 
     w.workspace_name,
-    w.total_files,
-    w.total_chunks,
-    w.last_updated_at
-FROM workspaces w
+    w.status,
+    w.created_at,
+    (SELECT COUNT(*) FROM indexed_files_v1 WHERE workspace_id = w.workspace_id) as total_files,
+    (SELECT COUNT(*) FROM file_chunks_small_v1 WHERE workspace_id = w.workspace_id) as total_chunks
+FROM workspaces_v1 w
 WHERE w.workspace_path = ?;
 ```
 
 ### Get chunks for a file (for tree view)
 
 ```sql
-SELECT chunk_id, content, line_start, line_end, chunk_index
-FROM code_chunks
+SELECT chunk_id, content, line_start, line_pos_start, line_end, line_pos_end, chunk_index
+FROM file_chunks_small_v1
 WHERE file_id = ?
 ORDER BY chunk_index, line_start;
 ```
 
 ## Design Decisions
 
-### Derived Folder Hierarchy
+### Explicit Folder Hierarchy
 
-The folder structure is derived from `file_path` rather than maintained in a separate table:
+The folder structure is maintained in a dedicated `folders_v1` table with self-referential parent relationships:
 
 **Benefits:**
-- Simpler maintenance - no need to create/delete folder records
-- Natural fit for file watching - file events already have full paths
-- Tree view is just a presentation concern - build it from grouped paths
-- Matches VS Code's model - VS Code works with file URIs, not folder entities
-- Fewer JOINs for common operations
+- Efficient tree view rendering - folder hierarchy is pre-computed
+- Parent-child relationships are explicit via `parent_folder_id`
+- Supports folder-level operations (collapse/expand, folder stats)
+- Enables folder-specific queries without parsing paths
+- Clear separation between folder metadata and file metadata
 
-### Denormalized Paths in code_chunks
+**Trade-offs:**
+- Requires maintaining folder records when files are added/removed
+- Additional JOINs for some queries
 
-`file_path` and `workspace_path` are duplicated in `code_chunks` to:
+### Denormalized Paths in file_chunks_small_v1
+
+`file_path` and `workspace_path` are duplicated in `file_chunks_small_v1` to:
 - Enable efficient workspace-scoped searches without JOINs
 - Support vector search filtering in a single query
-- Maintain compatibility with existing queries
+- Optimize the most common operation (semantic search)
 
 ### HNSW Index for Vector Search
 
@@ -201,12 +224,8 @@ Uses DuckDB's HNSW (Hierarchical Navigable Small World) index:
 
 | Version | Description |
 |---------|-------------|
-| 1 | Initial schema with indexed_files and code_chunks |
-| 2 | Added workspaces table, folder_path, and hierarchical structure |
+| 1 | Initial schema with workspaces_v1, folders_v1, indexed_files_v1, and file_chunks_small_v1 |
 
 ## Embedding Dimensions
 
-The embedding dimension (768 by default) depends on the model used:
-- `Xenova/all-MiniLM-L6-v2`: 384 dimensions
-- `Xenova/bge-base-en-v1.5`: 768 dimensions (default)
-- Other models may vary
+The embedding dimension (768 by default) depends on the model used.

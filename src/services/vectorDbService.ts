@@ -5,8 +5,9 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { EmbeddingService } from './embeddingService';
-import { IndexedFile, SearchResult, Workspace, FolderInfo, CodeChunk } from '../models/types';
+import { IndexedFile, SearchResult, Workspace, Folder, FolderInfo, CodeChunk } from '../models/types';
 import { MigrationService } from './migrationService';
 import { getLogger } from './logger';
 
@@ -17,12 +18,14 @@ interface CodeChunkInput {
     chunkId: string;
     fileId: string;
     filePath: string;
+    workspaceId: string;
     workspacePath: string;
     content: string;
     lineStart: number;
+    linePosStart: number;
     lineEnd: number;
+    linePosEnd: number;
     chunkIndex?: number;
-    language?: string;
 }
 
 export class VectorDbService {
@@ -93,7 +96,7 @@ export class VectorDbService {
         try {
             await this.connection.run(`
                 CREATE INDEX IF NOT EXISTS idx_chunks_embedding 
-                ON code_chunks 
+                ON file_chunks_small_v1 
                 USING HNSW (embedding)
                 WITH (metric = 'cosine')
             `);
@@ -176,22 +179,20 @@ export class VectorDbService {
         const chunkIndex = chunk.chunkIndex ?? 0;
         
         const sql = `
-            INSERT INTO code_chunks 
-            (chunk_id, file_id, file_path, workspace_path, content, 
-             line_start, line_end, chunk_index, token_start, token_end, language, embedding, created_at)
+            INSERT INTO file_chunks_small_v1 
+            (chunk_id, file_id, file_path, workspace_id, workspace_path, content, 
+             line_start, line_pos_start, line_end, line_pos_end, chunk_index, embedding, created_at)
             VALUES ('${chunk.chunkId}', '${chunk.fileId}', '${escapedFilePath}', 
-                    '${escapedWorkspacePath}', '${escapedContent}', 
-                    ${chunk.lineStart}, ${chunk.lineEnd}, ${chunkIndex},
-                    NULL, NULL,
-                    ${chunk.language ? `'${chunk.language}'` : 'NULL'}, 
-                    ${embeddingStr}, ${Date.now()})
+                    '${chunk.workspaceId}', '${escapedWorkspacePath}', '${escapedContent}', 
+                    ${chunk.lineStart}, ${chunk.linePosStart}, ${chunk.lineEnd}, ${chunk.linePosEnd}, 
+                    ${chunkIndex}, ${embeddingStr}, ${Date.now()})
             ON CONFLICT (chunk_id) DO UPDATE SET
                 content = excluded.content,
                 line_start = excluded.line_start,
+                line_pos_start = excluded.line_pos_start,
                 line_end = excluded.line_end,
+                line_pos_end = excluded.line_pos_end,
                 chunk_index = excluded.chunk_index,
-                token_start = excluded.token_start,
-                token_end = excluded.token_end,
                 embedding = excluded.embedding,
                 created_at = excluded.created_at
         `;
@@ -226,9 +227,11 @@ export class VectorDbService {
                 file_path,
                 content,
                 line_start,
+                line_pos_start,
                 line_end,
+                line_pos_end,
                 array_cosine_distance(embedding, ${embeddingStr}) AS distance
-            FROM code_chunks
+            FROM file_chunks_small_v1
         `;
         
         if (workspacePath) {
@@ -268,7 +271,7 @@ export class VectorDbService {
      */
     async deleteFileChunks(fileId: string): Promise<void> {
         await this.connection.run(
-            `DELETE FROM code_chunks WHERE file_id = '${fileId.replace(/'/g, "''")}'`
+            `DELETE FROM file_chunks_small_v1 WHERE file_id = '${fileId.replace(/'/g, "''")}'`
         );
     }
     
@@ -276,7 +279,7 @@ export class VectorDbService {
      * Get chunk count for a file
      */
     async getFileChunkCount(fileId: string): Promise<number> {
-        const sql = `SELECT COUNT(*) as count FROM code_chunks WHERE file_id = $1`;
+        const sql = `SELECT COUNT(*) as count FROM file_chunks_small_v1 WHERE file_id = $1`;
         const rows = await this.querySQL<{ count: number }>(sql, fileId);
         return rows[0]?.count ?? 0;
     }
@@ -285,7 +288,7 @@ export class VectorDbService {
      * Get total chunk count
      */
     async getTotalChunkCount(): Promise<number> {
-        const sql = `SELECT COUNT(*) as count FROM code_chunks`;
+        const sql = `SELECT COUNT(*) as count FROM file_chunks_small_v1`;
         const rows = await this.querySQL<{ count: number }>(sql);
         return rows[0]?.count ?? 0;
     }
@@ -302,7 +305,7 @@ export class VectorDbService {
      * Clear all chunks data
      */
     async clearAllChunks(): Promise<void> {
-        await this.runSQL('DELETE FROM code_chunks');
+        await this.runSQL('DELETE FROM file_chunks_small_v1');
     }
     
     // =====================
@@ -317,44 +320,34 @@ export class VectorDbService {
             throw new Error('Database not initialized');
         }
 
-        // Extract folder_path and file_name from file_path
-        const folderPath = file.folderPath || this.extractFolderPath(file.filePath);
         const fileName = file.fileName || this.extractFileName(file.filePath);
         const workspaceId = file.workspaceId || await this.getOrCreateWorkspaceId(file.workspacePath || '');
-        const createdAt = file.createdAt || Date.now();
+        const folderId = file.folderId || await this.getOrCreateFolderId(workspaceId, file.filePath);
         
         const sql = `
-            INSERT INTO indexed_files (file_id, workspace_id, file_path, folder_path, file_name, 
-                                       workspace_path, md5_hash, language, file_size, line_count, 
-                                       chunk_count, created_at, last_indexed_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            INSERT INTO indexed_files_v1 (file_id, workspace_id, folder_id, file_path, file_name, 
+                                          absolute_path, file_size, last_indexed_at, md5_hash)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (file_id) DO UPDATE SET
                 file_path = excluded.file_path,
-                folder_path = excluded.folder_path,
+                folder_id = excluded.folder_id,
                 file_name = excluded.file_name,
-                workspace_path = excluded.workspace_path,
-                md5_hash = excluded.md5_hash,
-                language = excluded.language,
+                absolute_path = excluded.absolute_path,
                 file_size = excluded.file_size,
-                line_count = excluded.line_count,
-                chunk_count = excluded.chunk_count,
-                last_indexed_at = excluded.last_indexed_at
+                last_indexed_at = excluded.last_indexed_at,
+                md5_hash = excluded.md5_hash
         `;
 
         const stmt = await this.connection.prepare(sql);
         stmt.bindValue(1, file.fileId);
         stmt.bindValue(2, workspaceId);
-        stmt.bindValue(3, file.filePath);
-        stmt.bindValue(4, folderPath);
+        stmt.bindValue(3, folderId);
+        stmt.bindValue(4, file.filePath);
         stmt.bindValue(5, fileName);
-        stmt.bindValue(6, file.workspacePath || '');
-        stmt.bindValue(7, file.md5Hash);
-        stmt.bindValue(8, file.language || null);
-        stmt.bindValue(9, file.fileSize || null);
-        stmt.bindValue(10, file.lineCount || null);
-        stmt.bindValue(11, file.chunkCount || 0);
-        stmt.bindValue(12, createdAt);
-        stmt.bindValue(13, file.lastIndexedAt);
+        stmt.bindValue(6, file.absolutePath);
+        stmt.bindValue(7, file.fileSize || null);
+        stmt.bindValue(8, file.lastIndexedAt);
+        stmt.bindValue(9, file.md5Hash);
         await stmt.run();
     }
 
@@ -377,9 +370,25 @@ export class VectorDbService {
     }
 
     /**
+     * Extract folder name from folder path
+     */
+    private extractFolderName(folderPath: string): string {
+        const normalized = folderPath.replace(/\\/g, '/');
+        const lastSlash = normalized.lastIndexOf('/');
+        return lastSlash >= 0 ? normalized.substring(lastSlash + 1) : normalized;
+    }
+
+    /**
+     * Generate folder ID from workspace ID and folder path
+     */
+    private generateFolderId(workspaceId: string, folderPath: string): string {
+        return crypto.createHash('md5').update(workspaceId + folderPath).digest('hex').substring(0, 16);
+    }
+
+    /**
      * Get or create workspace ID from workspace path
      */
-    private async getOrCreateWorkspaceId(workspacePath: string): Promise<string> {
+    async getOrCreateWorkspaceId(workspacePath: string): Promise<string> {
         if (!workspacePath) {
             return '';
         }
@@ -391,13 +400,12 @@ export class VectorDbService {
         }
 
         // Create new workspace
-        const crypto = require('crypto');
         const workspaceId = crypto.createHash('md5').update(workspacePath).digest('hex').substring(0, 16);
         const workspaceName = workspacePath.split(/[/\\]/).pop() || workspacePath;
         
         await this.connection.run(`
-            INSERT INTO workspaces (workspace_id, workspace_path, workspace_name, status, created_at, last_updated_at, total_files, total_chunks)
-            VALUES ('${workspaceId}', '${workspacePath.replace(/'/g, "''")}', '${workspaceName.replace(/'/g, "''")}', 'active', ${Date.now()}, ${Date.now()}, 0, 0)
+            INSERT INTO workspaces_v1 (workspace_id, workspace_path, workspace_name, status, created_at)
+            VALUES ('${workspaceId}', '${workspacePath.replace(/'/g, "''")}', '${workspaceName.replace(/'/g, "''")}', 'active', ${Date.now()})
             ON CONFLICT (workspace_id) DO NOTHING
         `);
 
@@ -405,24 +413,67 @@ export class VectorDbService {
     }
 
     /**
+     * Get or create folder ID from workspace ID and file path
+     * Creates all parent folders as needed
+     */
+    private async getOrCreateFolderId(workspaceId: string, filePath: string): Promise<string> {
+        const folderPath = this.extractFolderPath(filePath);
+        if (!folderPath) {
+            return '';
+        }
+
+        const folderId = this.generateFolderId(workspaceId, folderPath);
+        
+        // Check if folder already exists
+        const existingResult = await this.connection.run(`
+            SELECT folder_id FROM folders_v1 WHERE folder_id = '${folderId}'
+        `);
+        const existingRows = await existingResult.getRows();
+        
+        if (existingRows && existingRows.length > 0) {
+            return folderId;
+        }
+
+        // Create parent folders recursively
+        const parentFolderPath = this.extractFolderPath(folderPath);
+        let parentFolderId: string | null = null;
+        if (parentFolderPath) {
+            parentFolderId = await this.getOrCreateFolderId(workspaceId, folderPath);
+        }
+
+        // Create the folder
+        const folderName = this.extractFolderName(folderPath);
+        await this.connection.run(`
+            INSERT INTO folders_v1 (folder_id, workspace_id, parent_folder_id, folder_path, folder_name, created_at)
+            VALUES ('${folderId}', '${workspaceId}', ${parentFolderId ? `'${parentFolderId}'` : 'NULL'}, 
+                    '${folderPath.replace(/'/g, "''")}', '${folderName.replace(/'/g, "''")}', ${Date.now()})
+            ON CONFLICT (folder_id) DO NOTHING
+        `);
+
+        return folderId;
+    }
+
+    /**
      * Get indexed file by file ID
      */
     async getIndexedFile(fileId: string): Promise<IndexedFile | null> {
-        const sql = `SELECT * FROM indexed_files WHERE file_id = $1`;
+        const sql = `
+            SELECT f.*, w.workspace_path 
+            FROM indexed_files_v1 f
+            LEFT JOIN workspaces_v1 w ON f.workspace_id = w.workspace_id
+            WHERE f.file_id = $1
+        `;
         const rows = await this.querySQL<{
             file_id: string;
             workspace_id: string;
+            folder_id: string;
             file_path: string;
-            folder_path: string;
             file_name: string;
-            workspace_path: string;
-            md5_hash: string;
-            language: string | null;
+            absolute_path: string;
             file_size: number | null;
-            line_count: number | null;
-            chunk_count: number;
-            created_at: number;
             last_indexed_at: number;
+            md5_hash: string;
+            workspace_path: string | null;
         }>(sql, fileId);
 
         if (rows.length === 0) {
@@ -436,21 +487,23 @@ export class VectorDbService {
      * Get indexed file by file path
      */
     async getIndexedFileByPath(filePath: string): Promise<IndexedFile | null> {
-        const sql = `SELECT * FROM indexed_files WHERE file_path = $1`;
+        const sql = `
+            SELECT f.*, w.workspace_path 
+            FROM indexed_files_v1 f
+            LEFT JOIN workspaces_v1 w ON f.workspace_id = w.workspace_id
+            WHERE f.file_path = $1
+        `;
         const rows = await this.querySQL<{
             file_id: string;
             workspace_id: string;
+            folder_id: string;
             file_path: string;
-            folder_path: string;
             file_name: string;
-            workspace_path: string;
-            md5_hash: string;
-            language: string | null;
+            absolute_path: string;
             file_size: number | null;
-            line_count: number | null;
-            chunk_count: number;
-            created_at: number;
             last_indexed_at: number;
+            md5_hash: string;
+            workspace_path: string | null;
         }>(sql, filePath);
 
         if (rows.length === 0) {
@@ -465,33 +518,27 @@ export class VectorDbService {
      */
     private mapRowToIndexedFile(row: {
         file_id: string;
-        workspace_id?: string;
+        workspace_id: string;
+        folder_id: string;
         file_path: string;
-        folder_path?: string;
-        file_name?: string;
-        workspace_path: string;
-        md5_hash: string;
-        language?: string | null;
-        file_size?: number | null;
-        line_count?: number | null;
-        chunk_count?: number;
-        created_at?: number;
+        file_name: string;
+        absolute_path: string;
+        file_size: number | null;
         last_indexed_at: number;
+        md5_hash: string;
+        workspace_path?: string | null;
     }): IndexedFile {
         return {
             fileId: row.file_id,
             workspaceId: row.workspace_id || '',
+            folderId: row.folder_id || '',
             filePath: row.file_path,
-            folderPath: row.folder_path || this.extractFolderPath(row.file_path),
             fileName: row.file_name || this.extractFileName(row.file_path),
-            md5Hash: row.md5_hash,
-            language: row.language || undefined,
+            absolutePath: row.absolute_path,
             fileSize: row.file_size || undefined,
-            lineCount: row.line_count || undefined,
-            chunkCount: row.chunk_count || 0,
-            createdAt: row.created_at || row.last_indexed_at,
             lastIndexedAt: row.last_indexed_at,
-            workspacePath: row.workspace_path,
+            md5Hash: row.md5_hash,
+            workspacePath: row.workspace_path || undefined,
         };
     }
 
@@ -499,21 +546,23 @@ export class VectorDbService {
      * Get all indexed files for a workspace
      */
     async getIndexedFilesForWorkspace(workspacePath: string): Promise<IndexedFile[]> {
-        const sql = `SELECT * FROM indexed_files WHERE workspace_path = $1`;
+        const sql = `
+            SELECT f.*, w.workspace_path 
+            FROM indexed_files_v1 f
+            INNER JOIN workspaces_v1 w ON f.workspace_id = w.workspace_id
+            WHERE w.workspace_path = $1
+        `;
         const rows = await this.querySQL<{
             file_id: string;
             workspace_id: string;
+            folder_id: string;
             file_path: string;
-            folder_path: string;
             file_name: string;
-            workspace_path: string;
-            md5_hash: string;
-            language: string | null;
+            absolute_path: string;
             file_size: number | null;
-            line_count: number | null;
-            chunk_count: number;
-            created_at: number;
             last_indexed_at: number;
+            md5_hash: string;
+            workspace_path: string;
         }>(sql, workspacePath);
 
         return rows.map((row) => this.mapRowToIndexedFile(row));
@@ -523,21 +572,22 @@ export class VectorDbService {
      * Get all indexed files
      */
     async getAllIndexedFiles(): Promise<IndexedFile[]> {
-        const sql = `SELECT * FROM indexed_files`;
+        const sql = `
+            SELECT f.*, w.workspace_path 
+            FROM indexed_files_v1 f
+            LEFT JOIN workspaces_v1 w ON f.workspace_id = w.workspace_id
+        `;
         const rows = await this.querySQL<{
             file_id: string;
             workspace_id: string;
+            folder_id: string;
             file_path: string;
-            folder_path: string;
             file_name: string;
-            workspace_path: string;
-            md5_hash: string;
-            language: string | null;
+            absolute_path: string;
             file_size: number | null;
-            line_count: number | null;
-            chunk_count: number;
-            created_at: number;
             last_indexed_at: number;
+            md5_hash: string;
+            workspace_path: string | null;
         }>(sql);
 
         return rows.map((row) => this.mapRowToIndexedFile(row));
@@ -551,7 +601,7 @@ export class VectorDbService {
             throw new Error('Database not initialized');
         }
 
-        const sql = `DELETE FROM indexed_files WHERE file_id = $1`;
+        const sql = `DELETE FROM indexed_files_v1 WHERE file_id = $1`;
         const stmt = await this.connection.prepare(sql);
         stmt.bindValue(1, fileId);
         await stmt.run();
@@ -565,31 +615,44 @@ export class VectorDbService {
             throw new Error('Database not initialized');
         }
 
+        // Get workspace ID
+        const workspace = await this.getWorkspaceByPath(workspacePath);
+        if (!workspace) {
+            return;
+        }
+
         // Delete all chunks for workspace
         await this.connection.run(
-            `DELETE FROM code_chunks WHERE workspace_path = '${workspacePath.replace(/'/g, "''")}'`
+            `DELETE FROM file_chunks_small_v1 WHERE workspace_path = '${workspacePath.replace(/'/g, "''")}'`
         );
         
         // Delete indexed file records
-        const sql = `DELETE FROM indexed_files WHERE workspace_path = $1`;
-        const stmt = await this.connection.prepare(sql);
-        stmt.bindValue(1, workspacePath);
-        await stmt.run();
+        await this.connection.run(
+            `DELETE FROM indexed_files_v1 WHERE workspace_id = '${workspace.workspaceId}'`
+        );
+
+        // Delete folders
+        await this.connection.run(
+            `DELETE FROM folders_v1 WHERE workspace_id = '${workspace.workspaceId}'`
+        );
     }
 
     /**
      * Get count of indexed files for a workspace
      */
     async getIndexedFileCount(workspacePath?: string): Promise<number> {
-        let sql = `SELECT COUNT(*) as count FROM indexed_files`;
-        const params: unknown[] = [];
-        
         if (workspacePath) {
-            sql += ` WHERE workspace_path = $1`;
-            params.push(workspacePath);
+            const workspace = await this.getWorkspaceByPath(workspacePath);
+            if (!workspace) {
+                return 0;
+            }
+            const sql = `SELECT COUNT(*) as count FROM indexed_files_v1 WHERE workspace_id = $1`;
+            const rows = await this.querySQL<{ count: number }>(sql, workspace.workspaceId);
+            return rows[0]?.count ?? 0;
         }
-
-        const rows = await this.querySQL<{ count: number }>(sql, ...params);
+        
+        const sql = `SELECT COUNT(*) as count FROM indexed_files_v1`;
+        const rows = await this.querySQL<{ count: number }>(sql);
         return rows[0]?.count ?? 0;
     }
 
@@ -602,16 +665,13 @@ export class VectorDbService {
      */
     async getWorkspaceByPath(workspacePath: string): Promise<Workspace | null> {
         try {
-            const sql = `SELECT * FROM workspaces WHERE workspace_path = $1`;
+            const sql = `SELECT * FROM workspaces_v1 WHERE workspace_path = $1`;
             const rows = await this.querySQL<{
                 workspace_id: string;
                 workspace_path: string;
                 workspace_name: string;
                 status: string;
                 created_at: number;
-                last_updated_at: number;
-                total_files: number;
-                total_chunks: number;
             }>(sql, workspacePath);
 
             if (rows.length === 0) {
@@ -625,9 +685,6 @@ export class VectorDbService {
                 workspaceName: row.workspace_name,
                 status: row.status as 'active' | 'indexing' | 'error',
                 createdAt: row.created_at,
-                lastUpdatedAt: row.last_updated_at,
-                totalFiles: row.total_files,
-                totalChunks: row.total_chunks,
             };
         } catch {
             // Workspaces table may not exist in older databases
@@ -640,16 +697,13 @@ export class VectorDbService {
      */
     async getAllWorkspaces(): Promise<Workspace[]> {
         try {
-            const sql = `SELECT * FROM workspaces ORDER BY workspace_name`;
+            const sql = `SELECT * FROM workspaces_v1 ORDER BY workspace_name`;
             const rows = await this.querySQL<{
                 workspace_id: string;
                 workspace_path: string;
                 workspace_name: string;
                 status: string;
                 created_at: number;
-                last_updated_at: number;
-                total_files: number;
-                total_chunks: number;
             }>(sql);
 
             return rows.map((row) => ({
@@ -658,9 +712,6 @@ export class VectorDbService {
                 workspaceName: row.workspace_name,
                 status: row.status as 'active' | 'indexing' | 'error',
                 createdAt: row.created_at,
-                lastUpdatedAt: row.last_updated_at,
-                totalFiles: row.total_files,
-                totalChunks: row.total_chunks,
             }));
         } catch {
             return [];
@@ -668,18 +719,13 @@ export class VectorDbService {
     }
 
     /**
-     * Update workspace statistics
+     * Update workspace status
      */
-    async updateWorkspaceStats(workspacePath: string): Promise<void> {
+    async updateWorkspaceStatus(workspacePath: string, status: 'active' | 'indexing' | 'error'): Promise<void> {
         try {
-            const fileCount = await this.getIndexedFileCount(workspacePath);
-            const chunkCount = await this.getTotalChunkCountForWorkspace(workspacePath);
-            
             await this.connection.run(`
-                UPDATE workspaces 
-                SET total_files = ${fileCount}, 
-                    total_chunks = ${chunkCount}, 
-                    last_updated_at = ${Date.now()}
+                UPDATE workspaces_v1 
+                SET status = '${status}'
                 WHERE workspace_path = '${workspacePath.replace(/'/g, "''")}'
             `);
         } catch {
@@ -691,7 +737,7 @@ export class VectorDbService {
      * Get total chunk count for a workspace
      */
     async getTotalChunkCountForWorkspace(workspacePath: string): Promise<number> {
-        const sql = `SELECT COUNT(*) as count FROM code_chunks WHERE workspace_path = $1`;
+        const sql = `SELECT COUNT(*) as count FROM file_chunks_small_v1 WHERE workspace_path = $1`;
         const rows = await this.querySQL<{ count: number }>(sql, workspacePath);
         return rows[0]?.count ?? 0;
     }
@@ -704,55 +750,63 @@ export class VectorDbService {
      * Get folder hierarchy with file counts for a workspace
      */
     async getFolderHierarchy(workspacePath: string): Promise<FolderInfo[]> {
+        const workspace = await this.getWorkspaceByPath(workspacePath);
+        if (!workspace) {
+            return [];
+        }
+
         const sql = `
             SELECT 
-                folder_path,
-                COUNT(*) as file_count,
-                SUM(COALESCE(chunk_count, 0)) as total_chunks
-            FROM indexed_files
-            WHERE workspace_path = $1
-            GROUP BY folder_path
-            ORDER BY folder_path
+                f.folder_id,
+                f.folder_path,
+                f.folder_name,
+                COUNT(if2.file_id) as file_count
+            FROM folders_v1 f
+            LEFT JOIN indexed_files_v1 if2 ON f.folder_id = if2.folder_id
+            WHERE f.workspace_id = $1
+            GROUP BY f.folder_id, f.folder_path, f.folder_name
+            ORDER BY f.folder_path
         `;
         
         const rows = await this.querySQL<{
+            folder_id: string;
             folder_path: string;
+            folder_name: string;
             file_count: number;
-            total_chunks: number;
-        }>(sql, workspacePath);
+        }>(sql, workspace.workspaceId);
 
         return rows.map((row) => ({
+            folderId: row.folder_id,
             folderPath: row.folder_path || '',
+            folderName: row.folder_name || '',
             fileCount: row.file_count,
-            totalChunks: row.total_chunks || 0,
         }));
     }
 
     /**
      * Get files in a specific folder
      */
-    async getFilesInFolder(workspacePath: string, folderPath: string): Promise<IndexedFile[]> {
+    async getFilesInFolder(workspacePath: string, folderId: string): Promise<IndexedFile[]> {
         const sql = `
-            SELECT * FROM indexed_files 
-            WHERE workspace_path = $1 AND folder_path = $2
-            ORDER BY file_name
+            SELECT f.*, w.workspace_path 
+            FROM indexed_files_v1 f
+            INNER JOIN workspaces_v1 w ON f.workspace_id = w.workspace_id
+            WHERE f.folder_id = $1
+            ORDER BY f.file_name
         `;
         
         const rows = await this.querySQL<{
             file_id: string;
             workspace_id: string;
+            folder_id: string;
             file_path: string;
-            folder_path: string;
             file_name: string;
-            workspace_path: string;
-            md5_hash: string;
-            language: string | null;
+            absolute_path: string;
             file_size: number | null;
-            line_count: number | null;
-            chunk_count: number;
-            created_at: number;
             last_indexed_at: number;
-        }>(sql, workspacePath, folderPath);
+            md5_hash: string;
+            workspace_path: string;
+        }>(sql, folderId);
 
         return rows.map((row) => this.mapRowToIndexedFile(row));
     }
@@ -766,9 +820,10 @@ export class VectorDbService {
      */
     async getChunksForFile(fileId: string): Promise<CodeChunk[]> {
         const sql = `
-            SELECT chunk_id, file_id, content, line_start, line_end, 
+            SELECT chunk_id, file_id, file_path, workspace_id, workspace_path, content, 
+                   line_start, line_pos_start, line_end, line_pos_end,
                    COALESCE(chunk_index, 0) as chunk_index, created_at
-            FROM code_chunks 
+            FROM file_chunks_small_v1 
             WHERE file_id = $1
             ORDER BY chunk_index, line_start
         `;
@@ -776,9 +831,14 @@ export class VectorDbService {
         const rows = await this.querySQL<{
             chunk_id: string;
             file_id: string;
+            file_path: string;
+            workspace_id: string;
+            workspace_path: string;
             content: string;
             line_start: number;
+            line_pos_start: number;
             line_end: number;
+            line_pos_end: number;
             chunk_index: number;
             created_at: number;
         }>(sql, fileId);
@@ -786,9 +846,14 @@ export class VectorDbService {
         return rows.map((row) => ({
             chunkId: row.chunk_id,
             fileId: row.file_id,
+            filePath: row.file_path,
+            workspaceId: row.workspace_id,
+            workspacePath: row.workspace_path,
             content: row.content,
             lineStart: row.line_start,
+            linePosStart: row.line_pos_start,
             lineEnd: row.line_end,
+            linePosEnd: row.line_pos_end,
             chunkIndex: row.chunk_index,
             createdAt: row.created_at,
         }));

@@ -3,7 +3,7 @@
  */
 
 /**
- * Represents a workspace in the database
+ * Represents a workspace in the database (workspaces_v1 table)
  */
 export interface Workspace {
     workspaceId: string;
@@ -11,40 +11,51 @@ export interface Workspace {
     workspaceName: string;
     status: 'active' | 'indexing' | 'error';
     createdAt: number; // Unix timestamp
-    lastUpdatedAt: number; // Unix timestamp
-    totalFiles: number;
-    totalChunks: number;
 }
 
 /**
- * Represents an indexed file's metadata stored in DuckDB
+ * Represents a folder in the database (folders_v1 table)
+ */
+export interface Folder {
+    folderId: string;
+    workspaceId: string;
+    parentFolderId: string | null;
+    folderPath: string; // Full relative path, e.g., 'src/components'
+    folderName: string; // Just the folder name, e.g., 'components'
+    createdAt: number; // Unix timestamp
+}
+
+/**
+ * Represents an indexed file's metadata stored in DuckDB (indexed_files_v1 table)
  */
 export interface IndexedFile {
     fileId: string;
     workspaceId: string;
+    folderId: string;
     filePath: string; // Full relative path, e.g., 'src/components/Button.tsx'
-    folderPath: string; // Derived: 'src/components' (for grouping/tree view)
     fileName: string; // Just 'Button.tsx'
-    md5Hash: string;
-    language?: string;
+    absolutePath: string;
     fileSize?: number;
-    lineCount?: number;
-    chunkCount: number;
-    createdAt: number; // Unix timestamp
     lastIndexedAt: number; // Unix timestamp
-    // Legacy field for backward compatibility
+    md5Hash: string;
+    // Computed/derived fields (not in DB)
     workspacePath?: string;
 }
 
 /**
- * Represents a code chunk stored in the database
+ * Represents a code chunk stored in the database (file_chunks_small_v1 table)
  */
 export interface CodeChunk {
     chunkId: string;
     fileId: string;
+    filePath: string;
+    workspaceId: string;
+    workspacePath: string;
     content: string;
     lineStart: number;
+    linePosStart: number;
     lineEnd: number;
+    linePosEnd: number;
     chunkIndex: number; // Order within file
     createdAt: number; // Unix timestamp
 }
@@ -64,12 +75,13 @@ export interface DocumentChunk {
 }
 
 /**
- * Folder information derived from file paths
+ * Folder information for tree view (derived from folders_v1 + indexed_files_v1)
  */
 export interface FolderInfo {
+    folderId: string;
     folderPath: string;
+    folderName: string;
     fileCount: number;
-    totalChunks: number;
 }
 
 /**

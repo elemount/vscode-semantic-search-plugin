@@ -137,6 +137,9 @@ export class IndexingService {
             await this.vectorDbService.deleteFileChunks(fileId);
         }
 
+        // Get workspace ID
+        const workspaceId = await this.vectorDbService.getOrCreateWorkspaceId(workspacePath);
+
         // Split content into chunks (auto-detects document vs code files)
         const rawChunks = smartChunk(content, filePath, this.config);
 
@@ -145,10 +148,13 @@ export class IndexingService {
             chunkId: generateChunkId(fileId, chunk.lineStart, chunk.lineEnd),
             fileId,
             filePath,
+            workspaceId,
             workspacePath,
             content: chunk.content,
             lineStart: chunk.lineStart,
+            linePosStart: 1, // Default to start of line
             lineEnd: chunk.lineEnd,
+            linePosEnd: chunk.content.split('\n').pop()?.length || 1, // End position on last line
             chunkIndex: index,
         }));
 
@@ -157,22 +163,17 @@ export class IndexingService {
             await this.vectorDbService.addChunks(chunks);
         }
 
-        // Get file stats
-        const lineCount = content.split('\n').length;
-
         // Update metadata in database with new schema fields
         const indexedFile: IndexedFile = {
             fileId,
-            workspaceId: '', // Will be derived by vectorDbService
+            workspaceId,
+            folderId: '', // Will be derived by vectorDbService
             filePath,
-            folderPath: getRelativePath(workspacePath, filePath).replace(/[^/\\]+$/, '').replace(/[/\\]$/, ''),
             fileName: filePath.replace(/\\/g, '/').split('/').pop() || filePath,
+            absolutePath: filePath,
             md5Hash,
-            chunkCount: chunks.length,
-            createdAt: existingFile?.createdAt || Date.now(),
             lastIndexedAt: Date.now(),
             workspacePath,
-            lineCount,
         };
         await this.vectorDbService.upsertIndexedFile(indexedFile);
     }
@@ -269,7 +270,7 @@ export class IndexingService {
             }
 
             // Use stored chunk count if available, otherwise query
-            const chunkCount = file.chunkCount || await this.vectorDbService.getFileChunkCount(file.fileId);
+            const chunkCount = await this.vectorDbService.getFileChunkCount(file.fileId);
 
             entries.push({
                 fileId: file.fileId,
