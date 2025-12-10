@@ -57,55 +57,6 @@ export async function readFileContent(uri: vscode.Uri): Promise<string> {
 }
 
 /**
- * Split file content into chunks
- */
-export function splitIntoChunks(
-    content: string,
-    chunkSize: number = DEFAULT_INDEXING_CONFIG.chunkSize,
-    chunkOverlap: number = DEFAULT_INDEXING_CONFIG.chunkOverlap
-): { content: string; lineStart: number; lineEnd: number }[] {
-    const lines = content.split('\n');
-    const chunks: { content: string; lineStart: number; lineEnd: number }[] = [];
-    
-    if (lines.length === 0) {
-        return chunks;
-    }
-    
-    // For small files, return as single chunk
-    if (lines.length <= chunkSize) {
-        chunks.push({
-            content: content,
-            lineStart: 1,
-            lineEnd: lines.length,
-        });
-        return chunks;
-    }
-    
-    // Split into overlapping chunks
-    let startLine = 0;
-    while (startLine < lines.length) {
-        const endLine = Math.min(startLine + chunkSize, lines.length);
-        const chunkLines = lines.slice(startLine, endLine);
-        
-        chunks.push({
-            content: chunkLines.join('\n'),
-            lineStart: startLine + 1, // 1-indexed
-            lineEnd: endLine, // 1-indexed
-        });
-        
-        // Move to next chunk with overlap
-        startLine = endLine - chunkOverlap;
-        
-        // Prevent infinite loop for edge cases
-        if (endLine >= lines.length) {
-            break;
-        }
-    }
-    
-    return chunks;
-}
-
-/**
  * Get relative path from workspace
  */
 export function getRelativePath(workspacePath: string, filePath: string): string {
@@ -183,8 +134,6 @@ export function getIndexingConfigFromSettings(): IndexingConfig {
     const clampedOverlapTokens = Math.max(0, Math.min(overlapTokens, clampedMaxTokens - 1));
 
     return {
-        chunkSize: config.get<number>('chunkSize', DEFAULT_INDEXING_CONFIG.chunkSize),
-        chunkOverlap: config.get<number>('chunkOverlap', DEFAULT_INDEXING_CONFIG.chunkOverlap),
         chunkMaxTokens: clampedMaxTokens,
         chunkOverlapTokens: clampedOverlapTokens,
         excludePatterns,

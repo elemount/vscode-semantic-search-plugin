@@ -54,8 +54,6 @@ suite('Extension Test Suite', () => {
 		const config = vscode.workspace.getConfiguration('semanticSearch');
 		
 		assert.strictEqual(config.get('autoIndex'), false);
-		assert.strictEqual(config.get('chunkSize'), 50);
-		assert.strictEqual(config.get('chunkOverlap'), 5);
 		assert.strictEqual(config.get('indexing.chunkMaxTokens'), 1024);
 		assert.strictEqual(config.get('indexing.chunkOverlapTokens'), 256);
 		assert.strictEqual(config.get('maxResults'), 10);

@@ -41,8 +41,6 @@ export interface SearchResult {
  * Configuration for indexing
  */
 export interface IndexingConfig {
-    chunkSize: number;       // (Deprecated) Number of lines per chunk
-    chunkOverlap: number;    // (Deprecated) Number of overlapping lines between chunks
     chunkMaxTokens: number;      // Maximum number of tokens per chunk
     chunkOverlapTokens: number;  // Number of overlapping tokens between chunks
     excludePatterns: string[];
@@ -85,8 +83,6 @@ export interface WorkspaceIndex {
  * Default indexing configuration
  */
 export const DEFAULT_INDEXING_CONFIG: IndexingConfig = {
-    chunkSize: 50,
-    chunkOverlap: 10,
     chunkMaxTokens: 1024,
     chunkOverlapTokens: 256,
     excludePatterns: [

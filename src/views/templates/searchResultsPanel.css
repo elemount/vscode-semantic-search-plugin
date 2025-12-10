@@ -1,0 +1,146 @@
+:root {
+    --vscode-font-family: var(--vscode-editor-font-family, 'Consolas', 'Courier New', monospace);
+}
+body {
+    font-family: var(--vscode-font-family);
+    padding: 10px 20px;
+    color: var(--vscode-foreground);
+    background-color: var(--vscode-editor-background);
+}
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+.header h1 {
+    margin: 0;
+    font-size: 1.4em;
+    font-weight: 500;
+}
+.query {
+    color: var(--vscode-textLink-foreground);
+}
+.filters {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.filter-group label {
+    font-size: 0.85em;
+    color: var(--vscode-descriptionForeground);
+}
+select {
+    background-color: var(--vscode-dropdown-background);
+    color: var(--vscode-dropdown-foreground);
+    border: 1px solid var(--vscode-dropdown-border);
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+.result-count {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.9em;
+}
+.results {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.result-card {
+    background-color: var(--vscode-editor-inactiveSelectionBackground);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+}
+.result-card:hover {
+    border-color: var(--vscode-focusBorder);
+}
+.result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background-color: var(--vscode-sideBar-background);
+    cursor: pointer;
+}
+.result-header:hover {
+    background-color: var(--vscode-list-hoverBackground);
+}
+.result-path {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.result-path .icon {
+    opacity: 0.7;
+}
+.result-file {
+    font-weight: 500;
+    color: var(--vscode-textLink-foreground);
+}
+.result-lines {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.85em;
+}
+.result-score {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.score-bar {
+    width: 60px;
+    height: 6px;
+    background-color: var(--vscode-progressBar-background);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.score-fill {
+    height: 100%;
+    background-color: var(--vscode-progressBar-background);
+    background-color: var(--vscode-textLink-foreground);
+    transition: width 0.3s;
+}
+.score-text {
+    font-size: 0.8em;
+    color: var(--vscode-descriptionForeground);
+    min-width: 35px;
+}
+.result-content {
+    padding: 12px;
+    background-color: var(--vscode-editor-background);
+}
+pre {
+    margin: 0;
+    padding: 10px;
+    background-color: var(--vscode-textCodeBlock-background);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-size: 0.9em;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+code {
+    font-family: var(--vscode-editor-font-family);
+}
+.no-results {
+    text-align: center;
+    padding: 40px;
+    color: var(--vscode-descriptionForeground);
+}
+.result-index {
+    font-size: 0.8em;
+    color: var(--vscode-descriptionForeground);
+    min-width: 25px;
+}

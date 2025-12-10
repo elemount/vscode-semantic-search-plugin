@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Semantic Search</title>
+    <style>{{CSS_CONTENT}}</style>
+</head>
+<body>
+    <div class="search-container">
+        <!-- Search Input -->
+        <div class="input-group">
+            <input type="text" 
+                   class="search-input" 
+                   id="queryInput" 
+                   placeholder="Ask a question...">
+        </div>
+        
+        <!-- Toggle Search Details -->
+        <div class="filter-section">
+            <div class="details-toggle" id="detailsToggle" onclick="toggleDetails()" title="Toggle Search Details">···</div>
+            <div class="details-content" id="detailsContent">
+                <!-- Files to Include -->
+                <div class="filter-group">
+                    <label class="filter-label">files to include</label>
+                    <input type="text" 
+                           class="filter-input" 
+                           id="includeInput" 
+                           placeholder="e.g. src/**/*.ts, **/*.js">
+                </div>
+                
+                <!-- Files to Exclude -->
+                <div class="filter-group">
+                    <label class="filter-label">files to exclude</label>
+                    <input type="text" 
+                           class="filter-input" 
+                           id="excludeInput" 
+                           placeholder="e.g. **/test/**, **/*.test.ts">
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Results Header -->
+    <div class="results-header hidden" id="resultsHeader">
+        <span id="resultsCount">results</span>
+    </div>
+    
+    <!-- Loading State -->
+    <div class="loading hidden" id="loadingState">
+        <div class="loading-spinner"></div>
+        <span>Searching...</span>
+    </div>
+    
+    <!-- Error State -->
+    <div class="error-state hidden" id="errorState">
+        <span id="errorMessage"></span>
+    </div>
+    
+    <!-- Empty State -->
+    <div class="empty-state" id="emptyState">
+        Enter a question to search your codebase semantically.
+    </div>
+    
+    <!-- Results Container -->
+    <div class="results-container hidden" id="resultsContainer">
+    </div>
+    
+    <script>
+        const vscode = acquireVsCodeApi();
+        
+        // State
+        let state = {
+            detailsExpanded: false,
+            results: [],
+            query: ''
+        };
+        
+        // Elements
+        const queryInput = document.getElementById('queryInput');
+        const includeInput = document.getElementById('includeInput');
+        const excludeInput = document.getElementById('excludeInput');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const resultsHeader = document.getElementById('resultsHeader');
+        const resultsCount = document.getElementById('resultsCount');
+        const loadingState = document.getElementById('loadingState');
+        const errorState = document.getElementById('errorState');
+        const emptyState = document.getElementById('emptyState');
+        const detailsContent = document.getElementById('detailsContent');
+        const detailsToggle = document.getElementById('detailsToggle');
+        
+        // Toggle search details section
+        window.toggleDetails = function() {
+            state.detailsExpanded = !state.detailsExpanded;
+            if (state.detailsExpanded) {
+                detailsContent.classList.add('expanded');
+            } else {
+                detailsContent.classList.remove('expanded');
+            }
+        };
+        
+        // Perform search
+        function performSearch() {
+            const query = queryInput.value.trim();
+            const includePattern = includeInput.value.trim();
+            const excludePattern = excludeInput.value.trim();
+            
+            if (!query) {
+                return;
+            }
+            
+            vscode.postMessage({
+                command: 'search',
+                query: query,
+                includePattern: includePattern,
+                excludePattern: excludePattern
+            });
+        }
+        
+        // Open file
+        function openFile(filePath, lineStart, lineEnd) {
+            vscode.postMessage({
+                command: 'openFile',
+                filePath: filePath,
+                lineStart: lineStart,
+                lineEnd: lineEnd
+            });
+        }
+        
+        // Open in panel
+        function openInPanel() {
+            vscode.postMessage({
+                command: 'openInPanel'
+            });
+        }
+        
+        // Render results
+        function renderResults(results) {
+            resultsContainer.innerHTML = '';
+            
+            results.forEach((result) => {
+                const item = document.createElement('div');
+                item.className = 'result-item';
+                item.onclick = () => openFile(result.filePath, result.lineStart, result.lineEnd);
+                
+                // Truncate content for preview
+                const previewContent = result.content.length > 200 
+                    ? result.content.substring(0, 200) + '...' 
+                    : result.content;
+                
+                // Get file icon based on extension
+                const icon = getFileIcon(result.extension);
+                
+                item.innerHTML = `
+                    <div class="result-header">
+                        <span class="result-icon">\${icon}</span>
+                        <span class="result-path" title="\${result.relativePath}">\${result.relativePath}</span>
+                        <span class="result-score">\${result.scorePercent}%</span>
+                    </div>
+                    <div class="result-location">Lines \${result.lineStart}-\${result.lineEnd}</div>
+                    <div class="result-preview">\${escapeHtml(previewContent)}</div>
+                `;
+                
+                resultsContainer.appendChild(item);
+            });
+        }
+        
+        // Get file icon
+        function getFileIcon(extension) {
+            const iconMap = {
+                '.ts': '📘',
+                '.tsx': '📘',
+                '.js': '📒',
+                '.jsx': '📒',
+                '.py': '🐍',
+                '.java': '☕',
+                '.cs': '🔷',
+                '.go': '🔵',
+                '.rs': '🦀',
+                '.cpp': '📙',
+                '.c': '📙',
+                '.h': '📄',
+                '.md': '📝',
+                '.json': '📋',
+                '.yaml': '📋',
+                '.yml': '📋',
+                '.html': '🌐',
+                '.css': '🎨',
+                '.scss': '🎨'
+            };
+            return iconMap[extension] || '📄';
+        }
+        
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Show loading state
+        function showLoading() {
+            loadingState.classList.remove('hidden');
+            errorState.classList.add('hidden');
+            emptyState.classList.add('hidden');
+            resultsContainer.classList.add('hidden');
+        }
+        
+        // Show results
+        function showResults(results, query, totalCount, fileCount) {
+            loadingState.classList.add('hidden');
+            errorState.classList.add('hidden');
+            resultsHeader.classList.remove('hidden');
+            
+            if (results.length === 0) {
+                emptyState.textContent = 'No results found for "' + query + '"';
+                emptyState.classList.remove('hidden');
+                resultsContainer.classList.add('hidden');
+                resultsCount.textContent = 'No results';
+            } else {
+                emptyState.classList.add('hidden');
+                resultsContainer.classList.remove('hidden');
+                const fileText = fileCount === 1 ? 'file' : 'files';
+                resultsCount.textContent = totalCount + ' results in ' + fileCount + ' ' + fileText;
+                renderResults(results);
+            }
+            
+            state.results = results;
+            state.query = query;
+        }
+        
+        // Show error
+        function showError(message) {
+            loadingState.classList.add('hidden');
+            emptyState.classList.add('hidden');
+            resultsContainer.classList.add('hidden');
+            errorState.classList.remove('hidden');
+            document.getElementById('errorMessage').textContent = message;
+        }
+        
+        // Clear results
+        function clearResults() {
+            emptyState.textContent = 'Enter a question to search your codebase semantically.';
+            emptyState.classList.remove('hidden');
+            resultsContainer.classList.add('hidden');
+            loadingState.classList.add('hidden');
+            errorState.classList.add('hidden');
+            resultsHeader.classList.add('hidden');
+            resultsCount.textContent = 'Results';
+            queryInput.value = '';
+            state.results = [];
+            state.query = '';
+        }
+            
+        queryInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                performSearch();
+            }
+        });
+        
+        // Handle messages from extension
+        window.addEventListener('message', (event) => {
+            const message = event.data;
+            
+            switch (message.command) {
+                case 'updateResults':
+                    showResults(message.results, message.query, message.totalCount, message.fileCount);
+                    break;
+                case 'showLoading':
+                    showLoading();
+                    break;
+                case 'showError':
+                    showError(message.message);
+                    break;
+                case 'clearResults':
+                    clearResults();
+                    break;
+                case 'focusInput':
+                    queryInput.focus();
+                    break;
+            }
+        });
+    </script>
+</body>
+</html>

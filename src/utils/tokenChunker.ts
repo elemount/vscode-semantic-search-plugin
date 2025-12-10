@@ -1,27 +1,17 @@
 import { DEFAULT_INDEXING_CONFIG, IndexingConfig } from '../models/types';
-import { splitIntoChunks } from './fileUtils';
-import { getLogger } from '../services/logger';
 
- 
 let encoding: any | null = null;
 
-function getEncodingOrNull() {
+function getEncoding() {
     if (encoding) {
         return encoding;
     }
 
-    try {
-        // js-tiktoken provides get_encoding to construct a tokenizer
-        // We use cl100k_base which is a good general-purpose BPE
-         
-        const { get_encoding } = require('js-tiktoken');
-        encoding = get_encoding('cl100k_base');
-        return encoding;
-    } catch (error) {
-        getLogger().warn('TokenChunker', 'js-tiktoken not available, falling back to line-based chunking', error);
-        encoding = null;
-        return null;
-    }
+    // js-tiktoken provides getEncoding to construct a tokenizer
+    // We use cl100k_base which is a good general-purpose BPE
+    const { getEncoding } = require('js-tiktoken');
+    encoding = getEncoding('cl100k_base');
+    return encoding;
 }
 
 export interface TokenChunk {
@@ -36,18 +26,7 @@ export function splitIntoTokenChunks(
     content: string,
     config: IndexingConfig = DEFAULT_INDEXING_CONFIG
 ): TokenChunk[] {
-    const enc = getEncodingOrNull();
-
-    if (!enc) {
-        const lineChunks = splitIntoChunks(content, config.chunkSize, config.chunkOverlap);
-        return lineChunks.map((chunk, index) => ({
-            content: chunk.content,
-            lineStart: chunk.lineStart,
-            lineEnd: chunk.lineEnd,
-            tokenStart: index === 0 ? 0 : -1,
-            tokenEnd: -1,
-        }));
-    }
+    const enc = getEncoding();
 
     const lines = content.split('\n');
     const tokenStarts: number[] = new Array(lines.length);
