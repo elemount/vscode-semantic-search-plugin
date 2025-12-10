@@ -22,7 +22,7 @@ export function registerSemanticSearchTool(
     searchService: SearchService
 ): void {
     // Register the language model tool
-    const tool = vscode.lm.registerTool('semantic-search_semanticSearch', {
+    const tool = vscode.lm.registerTool('semantic-search_ask', {
         async invoke(
             options: vscode.LanguageModelToolInvocationOptions<SemanticSearchToolInput>,
             token: vscode.CancellationToken

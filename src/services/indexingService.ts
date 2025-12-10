@@ -17,10 +17,10 @@ import {
     generateChunkId,
     getWorkspaceFiles,
     readFileContent,
-    splitIntoChunks,
     getRelativePath,
     normalizePath,
 } from '../utils/fileUtils';
+import { splitIntoTokenChunks } from '../utils/tokenChunker';
 
 export class IndexingService {
     private vectorDbService: VectorDbService;
@@ -136,8 +136,8 @@ export class IndexingService {
             await this.vectorDbService.deleteFileChunks(fileId);
         }
 
-        // Split content into chunks
-        const rawChunks = splitIntoChunks(content, this.config.chunkSize, this.config.chunkOverlap);
+        // Split content into token-based chunks (with line-aligned boundaries)
+        const rawChunks = splitIntoTokenChunks(content, this.config);
 
         // Create code chunks for VectorDbService
         const chunks = rawChunks.map((chunk) => ({

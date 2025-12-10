@@ -106,11 +106,29 @@ export class VectorDbService {
                 content TEXT NOT NULL,
                 line_start INTEGER NOT NULL,
                 line_end INTEGER NOT NULL,
+                token_start INTEGER,
+                token_end INTEGER,
                 language VARCHAR,
                 embedding FLOAT[${this.dimensions}],
                 created_at BIGINT NOT NULL
             )
         `);
+
+        // Backfill new token metadata columns if upgrading from an older schema
+        try {
+            await this.connection.run(
+                'ALTER TABLE code_chunks ADD COLUMN token_start INTEGER'
+            );
+        } catch {
+            // Column may already exist
+        }
+        try {
+            await this.connection.run(
+                'ALTER TABLE code_chunks ADD COLUMN token_end INTEGER'
+            );
+        } catch {
+            // Column may already exist
+        }
         
         // Create regular indexes for filtering
         await this.connection.run(`
@@ -207,16 +225,19 @@ export class VectorDbService {
         const sql = `
             INSERT INTO code_chunks 
             (chunk_id, file_id, file_path, workspace_path, content, 
-             line_start, line_end, language, embedding, created_at)
+             line_start, line_end, token_start, token_end, language, embedding, created_at)
             VALUES ('${chunk.chunkId}', '${chunk.fileId}', '${escapedFilePath}', 
                     '${escapedWorkspacePath}', '${escapedContent}', 
                     ${chunk.lineStart}, ${chunk.lineEnd}, 
+                    NULL, NULL,
                     ${chunk.language ? `'${chunk.language}'` : 'NULL'}, 
                     ${embeddingStr}, ${Date.now()})
             ON CONFLICT (chunk_id) DO UPDATE SET
                 content = excluded.content,
                 line_start = excluded.line_start,
                 line_end = excluded.line_end,
+                token_start = excluded.token_start,
+                token_end = excluded.token_end,
                 embedding = excluded.embedding,
                 created_at = excluded.created_at
         `;

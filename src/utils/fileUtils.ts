@@ -170,9 +170,23 @@ export function getIndexingConfigFromSettings(): IndexingConfig {
         ? userIncludePatterns 
         : DEFAULT_INDEXING_CONFIG.includePatterns;
     
+    const maxTokens = config.get<number>(
+        'indexing.chunkMaxTokens',
+        DEFAULT_INDEXING_CONFIG.chunkMaxTokens
+    );
+    const overlapTokens = config.get<number>(
+        'indexing.chunkOverlapTokens',
+        DEFAULT_INDEXING_CONFIG.chunkOverlapTokens
+    );
+
+    const clampedMaxTokens = Math.min(Math.max(maxTokens, 256), 2048);
+    const clampedOverlapTokens = Math.max(0, Math.min(overlapTokens, clampedMaxTokens - 1));
+
     return {
         chunkSize: config.get<number>('chunkSize', DEFAULT_INDEXING_CONFIG.chunkSize),
         chunkOverlap: config.get<number>('chunkOverlap', DEFAULT_INDEXING_CONFIG.chunkOverlap),
+        chunkMaxTokens: clampedMaxTokens,
+        chunkOverlapTokens: clampedOverlapTokens,
         excludePatterns,
         includePatterns,
     };

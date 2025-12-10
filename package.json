@@ -2,7 +2,7 @@
   "name": "semantic-search",
   "displayName": "Semantic Search",
   "description": "Provide local semantic search for VsCode to make LLM happy",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "engines": {
     "vscode": "^1.106.1"
   },
@@ -109,7 +109,8 @@
           "type": "webview",
           "id": "semanticSearchSidebar",
           "name": "Search",
-          "contextualTitle": "Semantic Search"
+          "contextualTitle": "Semantic Search",
+          "icon": "$(search)"
         }
       ],
       "explorer": [
@@ -193,14 +194,28 @@
           "default": 50,
           "minimum": 10,
           "maximum": 500,
-          "description": "Number of lines per chunk for indexing"
+          "description": "(Deprecated) Number of lines per chunk for indexing"
         },
         "semanticSearch.chunkOverlap": {
           "type": "number",
           "default": 5,
           "minimum": 0,
           "maximum": 50,
-          "description": "Number of overlapping lines between chunks"
+          "description": "(Deprecated) Number of overlapping lines between chunks"
+        },
+        "semanticSearch.indexing.chunkMaxTokens": {
+          "type": "number",
+          "default": 1024,
+          "minimum": 256,
+          "maximum": 2048,
+          "description": "Maximum number of tokens per chunk for indexing"
+        },
+        "semanticSearch.indexing.chunkOverlapTokens": {
+          "type": "number",
+          "default": 256,
+          "minimum": 0,
+          "maximum": 2047,
+          "description": "Number of overlapping tokens between chunks (must be less than max tokens)"
         },
         "semanticSearch.maxResults": {
           "type": "number",
@@ -229,9 +244,8 @@
     },
     "languageModelTools": [
       {
-        "name": "semantic-search_semanticSearch",
+        "name": "semantic-search_ask",
         "displayName": "Semantic Search",
-        "description": "Search for relevant code snippets using semantic similarity. Use this to find code related to a concept or description.",
         "modelDescription": "Search for relevant code snippets in the workspace using semantic similarity. Returns file paths, line numbers, and code content. Use this when the user asks about code functionality, wants to find implementations, or needs to locate specific features in the codebase.",
         "icon": "$(search)",
         "canBeReferencedInPrompt": true,
@@ -275,7 +289,8 @@
     "@duckdb/node-api": "^1.4.2-r.1",
     "@duckdb/node-bindings": "^1.4.2-r.1",
     "@huggingface/transformers": "^3.0.0",
-    "minimatch": "^10.0.1"
+    "minimatch": "^10.0.1",
+    "js-tiktoken": "^1.0.14"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
